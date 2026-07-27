@@ -243,8 +243,6 @@ while running:
                 all_rects = modify_xy(p_index, all_rects, px, py)
                 rect_instances = update_instances(p_index, all_rects, rect_instances, convert_rgb=False)
                 rvbo.write(rect_instances[p_index].tobytes(), offset=p_index*rstride)
-
-            #collided = check_collision(all_rects[p_index], all_rects[p_index+1:])
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
                 mouse_collisions = check_mouse_collisions(mx,my,all_rects,'rect')
