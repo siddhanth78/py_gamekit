@@ -53,7 +53,7 @@ def load_point_program(ctx, vert_path, frag_path):
             )
 
 # Build rect instances
-def build_rect_instances(ctx, program, instances):
+def build_rect_objs(ctx, program, instances):
     vertices = np.array([
         -0.1,-0.1,   0.0,0.0,
         0.1,-0.1,   1.0,0.0,
@@ -79,7 +79,7 @@ def build_rect_instances(ctx, program, instances):
     return vao, ivbo
 
 # Build point instances
-def build_point_instances(ctx, program, instances):
+def build_point_objs(ctx, program, instances):
     ivbo = ctx.buffer(instances.tobytes())
     
     vao = ctx.vertex_array(
@@ -193,8 +193,8 @@ all_rects, rect_instances = to_gl(all_rects, rect_instances, 'rect')
 all_points, point_instances = to_gl(all_points, point_instances, 'point')
 
 # Build rects and points vaos and vbos
-rect_vao, rvbo = build_rect_instances(ctx, program_rect, rect_instances)
-point_vao, pvbo = build_point_instances(ctx, program_point, point_instances)
+rect_vao, rvbo = build_rect_objs(ctx, program_rect, rect_instances)
+point_vao, pvbo = build_point_objs(ctx, program_point, point_instances)
 
 # Pointer set to modify rect instance
 p_index = 0
