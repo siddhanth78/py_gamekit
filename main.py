@@ -1,0 +1,185 @@
+import pygame
+import moderngl
+import numpy as np
+import math
+
+pygame.init()
+
+WIDTH, HEIGHT = 800, 600
+
+pygame.display.gl_set_attribute(pygame.GL_CONTEXT_MAJOR_VERSION, 3)
+pygame.display.gl_set_attribute(pygame.GL_CONTEXT_MINOR_VERSION, 3)
+pygame.display.gl_set_attribute(pygame.GL_CONTEXT_PROFILE_MASK, pygame.GL_CONTEXT_PROFILE_CORE)
+pygame.display.gl_set_attribute(pygame.GL_DOUBLEBUFFER, 1)
+
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.OPENGL | pygame.DOUBLEBUF)
+pygame.key.set_repeat(200, 50)
+
+ctx = moderngl.create_context()
+ctx.enable(moderngl.PROGRAM_POINT_SIZE)
+
+print(f"GPU Hardware: {ctx.info['GL_RENDERER']}")
+print(f"GPU Vendor:   {ctx.info['GL_VENDOR']}")
+print(f"GL Version:   {ctx.info['GL_VERSION']}")
+
+clock = pygame.time.Clock()
+
+N=5000
+
+aspect = WIDTH/HEIGHT
+
+def load_rect_program(ctx, vert_path, frag_path):
+    with open(vert_path, 'r') as vf:
+        v_code = vf.read()
+    with open(frag_path, 'r') as ff:
+        f_code = ff.read()
+
+    return ctx.program(
+                vertex_shader = v_code,
+                fragment_shader = f_code
+            )
+
+def load_point_program(ctx, vert_path, frag_path):
+    with open(vert_path, 'r') as vf:
+        v_code = vf.read()
+    with open(frag_path, 'r') as ff:
+        f_code = ff.read()
+
+    return ctx.program(
+                vertex_shader = v_code,
+                fragment_shader = f_code
+            )
+
+def build_rect_instances(ctx, program, instances):
+    vertices = np.array([
+        -0.1,-0.1,   0.0,0.0,
+        0.1,-0.1,   1.0,0.0,
+        0.1, 0.1,   1.0,1.0,
+        -0.1, 0.1,   0.0,1.0
+        ], dtype="f4")
+
+    indices = np.array([
+        0, 1, 2,
+        0, 3, 2
+        ], dtype="i4")
+
+    quad_vbo = ctx.buffer(vertices.tobytes())
+    quad_ibo = ctx.buffer(indices.tobytes())
+    ivbo = ctx.buffer(instances.tobytes())
+
+    vao = ctx.vertex_array(
+            program,
+            [(quad_vbo, '2f 2f', 'quad_position', 'quad_uv'),
+             (ivbo, '2f 3f 1f 2f 1f /i', 'in_offset', 'in_color', 'in_thickness', 'in_scale', 'in_rotation')],
+            index_buffer=quad_ibo
+            )
+    return vao, ivbo
+
+def build_point_instances(ctx, program, instances):
+
+    ivbo = ctx.buffer(instances.tobytes())
+
+    vao = ctx.vertex_array(
+            program,
+            [(ivbo, '2f 3f 1f /i', 'in_offset', 'in_color', 'in_scale')],
+            )
+    return vao, ivbo
+
+def convert_to_clip_space(x,y):
+    cx = (x / WIDTH) * 2.0 - 1.0
+    cy = 1.0 - (y / HEIGHT) * 2.0
+    return cx, cy
+
+def update_instances(p_index, all_rects, instances):
+    instances[p_index] = all_rects[p_index]
+    return instances
+
+def check_collision(player, obstacles):
+    all_collided = []
+    for o in range(len(obstacles)):
+        p_half_x = 0.1 * player[6]
+        p_half_y = 0.1 * player[7]
+        o_half_x = 0.1 * obstacles[o][6]
+        o_half_y = 0.1 * obstacles[o][7]
+        if (player[0] - p_half_x < obstacles[o][0] + o_half_x and
+            player[0] + p_half_x > obstacles[o][0] - o_half_x and
+            player[1] - p_half_y < obstacles[o][1] + o_half_y and
+            player[1] + p_half_y > obstacles[o][1] - o_half_y):
+            all_collided.append(o)
+    return all_collided
+
+running = True
+
+program_rect = load_rect_program(ctx, 'shaders/rect.vert', 'shaders/rect.frag')
+program_point = load_point_program(ctx, 'shaders/point.vert', 'shaders/point.frag')
+
+program_rect["u_aspect"] = aspect
+
+#[x,y, r,g,b, thickness, scale_x,scale_y, rotation]
+all_rects = [
+        [0,0,     1.0,1.0,1.0,  0.08,  0.5,0.5,  0],         #player
+        [300,300, 1.0,0.0,0.0,  1.0,   5.0,5.0,  0]]
+rect_instances = np.zeros((N, 9), dtype='f4')
+
+stride = 8*9
+
+#[x,y, r,g,b, scale]
+all_points = [[150,150, 1.0,1.0,1.0, 1.0]]
+point_instances = np.zeros((N, 6), dtype='f4')
+
+for i in range(len(all_rects)):
+    all_rects[i][-1] = math.radians(all_rects[i][-1])
+    all_rects[i][0], all_rects[i][1] = convert_to_clip_space(all_rects[i][0], all_rects[i][1])
+    rect_instances[i] = all_rects[i]
+
+for j in range(len(all_points)):
+    all_points[j][0], all_points[j][1] = convert_to_clip_space(all_points[j][0], all_points[j][1])
+    point_instances[j] = all_points[j]
+
+p_index = 0
+
+speed = 10
+px,py = 0,0
+
+rect_vao, rvbo = build_rect_instances(ctx, program_rect, rect_instances)
+point_vao, pvbo = build_point_instances(ctx, program_point, point_instances)
+
+collided = []
+
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                running = False
+            elif event.key == pygame.K_a:
+                px -= speed
+            elif event.key == pygame.K_d:
+                px += speed
+            elif event.key == pygame.K_w:
+                py -= speed
+            elif event.key == pygame.K_s:
+                py += speed
+
+            px = max(0, min(WIDTH, px))
+            py = max(0, min(HEIGHT, py))
+
+            if event.key in [pygame.K_a, pygame.K_d, pygame.K_w, pygame.K_s]:
+
+                all_rects[p_index][0], all_rects[p_index][1] = convert_to_clip_space(px, py)
+                rect_instances = update_instances(p_index, all_rects, rect_instances)
+                rvbo.write(rect_instances[p_index].tobytes(), offset=p_index*stride)
+
+            #collided = check_collision(all_rects[p_index], all_rects[p_index+1:])
+
+    ctx.clear(0, 0, 0)
+    
+    rect_vao.render(moderngl.TRIANGLES, instances=len(all_rects))
+    point_vao.render(moderngl.POINTS, vertices=1, instances=len(all_points))
+
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
