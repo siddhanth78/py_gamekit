@@ -157,6 +157,14 @@ def to_gl(data, instances, type_):
 
     return data, instances
 
+def modify_xy(idx, data, x, y):
+    data[idx][0], data[idx][1] = x,y
+    return data
+
+def modify_rgb(idx, data, r,g,b):
+    data[idx][2],data[idx][3],data[idx][4] = r,g,b
+    return data
+
 running = True
 
 program_rect = load_rect_program(ctx, 'shaders/rect.vert', 'shaders/rect.frag')
@@ -232,8 +240,8 @@ while running:
             py = max(0, min(HEIGHT, py))
 
             if event.key in [pygame.K_a, pygame.K_d, pygame.K_w, pygame.K_s]:
-                all_rects[p_index][0], all_rects[p_index][1] = px,py
-                rect_instances = update_instances(p_index, all_rects, rect_instances, convert_xy=True, convert_rgb=False)
+                all_rects = modify_xy(p_index, all_rects, px, py)
+                rect_instances = update_instances(p_index, all_rects, rect_instances, convert_rgb=False)
                 rvbo.write(rect_instances[p_index].tobytes(), offset=p_index*rstride)
 
             #collided = check_collision(all_rects[p_index], all_rects[p_index+1:])
@@ -242,7 +250,7 @@ while running:
                 mouse_collisions = check_mouse_collisions(mx,my,all_rects,'rect')
                 if mouse_collisions:
                     idx = mouse_collisions[0]
-                    all_rects[idx][2],all_rects[idx][3],all_rects[idx][4] = 255,0,255
+                    all_rects = modify_rgb(idx, all_rects, 255,0,255)
                     rect_instances = update_instances(idx, all_rects, rect_instances, convert_xy=False)
                     rvbo.write(rect_instances[idx].tobytes(), offset=idx*rstride)
                 else:
