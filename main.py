@@ -80,9 +80,8 @@ def build_rect_instances(ctx, program, instances):
 
 # Build point instances
 def build_point_instances(ctx, program, instances):
-
     ivbo = ctx.buffer(instances.tobytes())
-
+    
     vao = ctx.vertex_array(
             program,
             [(ivbo, '2f 3f 1f /i', 'in_offset', 'in_color', 'in_scale')],
@@ -253,13 +252,15 @@ while running:
             elif event.button == 3:
                 mouse_collisions = check_mouse_collisions(mx,my,all_points,'point')
                 if mouse_collisions:
-                    idx = mouse_collisions[0]
-                    lid = len(all_points)-1
-                    if idx != lid:
-                        all_points[idx] = all_points[lid]
-                        point_instances[idx] = point_instances[lid]
-                    all_points.pop()
-                    pvbo.write(point_instances[idx].tobytes(), offset=idx*pstride)
+                    mouse_collisions = mouse_collisions[::-1]
+                    for m in mouse_collisions:
+                        idx = m
+                        lid = len(all_points)-1
+                        if idx != lid:
+                            all_points[idx] = all_points[lid]
+                            point_instances[idx] = point_instances[lid]
+                        all_points.pop()
+                        pvbo.write(point_instances[idx].tobytes(), offset=idx*pstride)
 
     ctx.clear(0, 0, 0)
     
