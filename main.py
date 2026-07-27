@@ -96,7 +96,11 @@ def convert_to_clip_space(x,y):
     return cx, cy
 
 # Update instance via index
-def update_instances(idx, data, instances):
+def update_instances(idx, data, instances, convert_xy=True, convert_rgb=True):
+    if convert_xy == True:
+        data[idx][0], data[idx][1] = convert_to_clip_space(data[idx][0], data[idx][1])
+    if convert_rgb == True:
+        data[idx][2], data[idx][3], data[idx][4] = data[idx][2]/255.0, data[idx][3]/255.0, data[idx][4]/255.0
     instances[idx] = data[idx]
     return instances
 
@@ -113,6 +117,26 @@ def check_collision(player, obstacles):
             player[1] - p_half_y < obstacles[o][1] + o_half_y and
             player[1] + p_half_y > obstacles[o][1] - o_half_y):
             all_collided.append(o)
+    return all_collided
+
+def check_mouse_collisions(mx,my, data, type_):
+    all_collided = []
+    mx,my = convert_to_clip_space(mx,my)
+    for i in range(len(data)):
+        if type_ == 'point':
+            half_p = 10*data[i][5]
+            half_p_x = half_p * (2/WIDTH)
+            half_p_y = half_p * (2/HEIGHT)
+            if (data[i][0]-half_p_x <= mx <= data[i][0]+half_p_x) and (data[i][1]-half_p_y <= my <= data[i][1]+half_p_y):
+                all_collided.append(i)
+        elif type_ == 'rect':
+            r_half_x = (0.1 * data[i][6])/aspect
+            r_half_y = 0.1 * data[i][7]
+            if (mx < data[i][0] + r_half_x and
+                mx > data[i][0] - r_half_x and
+                my < data[i][1] + r_half_y and
+                my > data[i][1] - r_half_y):
+                all_collided.append(i)
     return all_collided
 
 # Convert data to gl-expected format
@@ -141,8 +165,11 @@ program_point = load_point_program(ctx, 'shaders/point.vert', 'shaders/point.fra
 
 program_rect["u_aspect"] = aspect
 
-# 4 bytes x 9 floats
+# 4 bytes x 9 floats (rects)
 rstride = 4*9
+
+# 4 bytes x 6 floats (points)
+pstride = 4*6
 
 # x,y: pygame coords
 # r,g,b: standard 0-255 range
@@ -180,8 +207,12 @@ px,py = 0,0
 
 # Array of indices of collided objs
 collided = []
+mouse_collisions = []
 
 while running:
+
+    mx,my = pygame.mouse.get_pos()
+
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -202,11 +233,33 @@ while running:
             py = max(0, min(HEIGHT, py))
 
             if event.key in [pygame.K_a, pygame.K_d, pygame.K_w, pygame.K_s]:
-                all_rects[p_index][0], all_rects[p_index][1] = convert_to_clip_space(px, py)
-                rect_instances = update_instances(p_index, all_rects, rect_instances)
+                all_rects[p_index][0], all_rects[p_index][1] = px,py
+                rect_instances = update_instances(p_index, all_rects, rect_instances, convert_xy=True, convert_rgb=False)
                 rvbo.write(rect_instances[p_index].tobytes(), offset=p_index*rstride)
 
             #collided = check_collision(all_rects[p_index], all_rects[p_index+1:])
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:
+                mouse_collisions = check_mouse_collisions(mx,my,all_rects,'rect')
+                if mouse_collisions:
+                    idx = mouse_collisions[0]
+                    all_rects[idx][2],all_rects[idx][3],all_rects[idx][4] = 255,0,255
+                    rect_instances = update_instances(idx, all_rects, rect_instances, convert_xy=False)
+                    rvbo.write(rect_instances[idx].tobytes(), offset=idx*rstride)
+                else:
+                    all_points.append([mx,my, 255,255,255, 1.0])
+                    point_instances = update_instances(len(all_points)-1, all_points, point_instances)
+                    pvbo.write(point_instances[len(all_points)-1].tobytes(), offset=(len(all_points)-1)*pstride)
+            elif event.button == 3:
+                mouse_collisions = check_mouse_collisions(mx,my,all_points,'point')
+                if mouse_collisions:
+                    idx = mouse_collisions[0]
+                    lid = len(all_points)-1
+                    if idx != lid:
+                        all_points[idx] = all_points[lid]
+                        point_instances[idx] = point_instances[lid]
+                    all_points.pop()
+                    pvbo.write(point_instances[idx].tobytes(), offset=idx*pstride)
 
     ctx.clear(0, 0, 0)
     
