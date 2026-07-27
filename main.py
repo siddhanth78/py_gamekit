@@ -196,7 +196,7 @@ rect_instances = np.zeros((N, 9), dtype='f4')
 all_points = [[150,150, 255,255,255, 1.0]]
 point_instances = np.zeros((N, 6), dtype='f4')
 
-# Convert to gl format
+# Convert to gl format and populate instance arrays
 all_rects, rect_instances = to_gl(all_rects, rect_instances, 'rect')
 all_points, point_instances = to_gl(all_points, point_instances, 'point')
 
