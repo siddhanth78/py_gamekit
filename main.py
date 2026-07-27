@@ -28,6 +28,7 @@ N=5000
 
 aspect = WIDTH/HEIGHT
 
+# Load rect shader
 def load_rect_program(ctx, vert_path, frag_path):
     with open(vert_path, 'r') as vf:
         v_code = vf.read()
@@ -39,6 +40,7 @@ def load_rect_program(ctx, vert_path, frag_path):
                 fragment_shader = f_code
             )
 
+# Load point shader
 def load_point_program(ctx, vert_path, frag_path):
     with open(vert_path, 'r') as vf:
         v_code = vf.read()
@@ -50,6 +52,7 @@ def load_point_program(ctx, vert_path, frag_path):
                 fragment_shader = f_code
             )
 
+# Build rect instances
 def build_rect_instances(ctx, program, instances):
     vertices = np.array([
         -0.1,-0.1,   0.0,0.0,
@@ -75,6 +78,7 @@ def build_rect_instances(ctx, program, instances):
             )
     return vao, ivbo
 
+# Build point instances
 def build_point_instances(ctx, program, instances):
 
     ivbo = ctx.buffer(instances.tobytes())
@@ -85,21 +89,24 @@ def build_point_instances(ctx, program, instances):
             )
     return vao, ivbo
 
+# Convert pygame to gl coords
 def convert_to_clip_space(x,y):
     cx = (x / WIDTH) * 2.0 - 1.0
     cy = 1.0 - (y / HEIGHT) * 2.0
     return cx, cy
 
-def update_instances(p_index, all_rects, instances):
-    instances[p_index] = all_rects[p_index]
+# Update instance via index
+def update_instances(idx, data, instances):
+    instances[idx] = data[idx]
     return instances
 
+# Check 2d collisions
 def check_collision(player, obstacles):
     all_collided = []
     for o in range(len(obstacles)):
-        p_half_x = 0.1 * player[6]
+        p_half_x = (0.1 * player[6])/aspect
         p_half_y = 0.1 * player[7]
-        o_half_x = 0.1 * obstacles[o][6]
+        o_half_x = (0.1 * obstacles[o][6])/aspect
         o_half_y = 0.1 * obstacles[o][7]
         if (player[0] - p_half_x < obstacles[o][0] + o_half_x and
             player[0] + p_half_x > obstacles[o][0] - o_half_x and
@@ -108,6 +115,25 @@ def check_collision(player, obstacles):
             all_collided.append(o)
     return all_collided
 
+# Convert data to gl-expected format
+# degrees -> rad (rects only)
+# coords -> gl clip space coords
+# rgb -> 0-1 norm
+def to_gl(data, instances, type_):
+    if type_ == 'rect':
+        for i in range(len(data)):
+            data[i][-1] = math.radians(data[i][-1])
+            data[i][0], data[i][1] = convert_to_clip_space(data[i][0], data[i][1])
+            data[i][2], data[i][3], data[i][4] = data[i][2]/255.0, data[i][3]/255.0, data[i][4]/255.0
+            instances[i] = data[i]
+    elif type_ == 'point':
+        for j in range(len(data)):
+            data[j][0], data[j][1] = convert_to_clip_space(data[j][0], data[j][1])
+            data[j][2], data[j][3], data[j][4] = data[j][2]/255.0, data[j][3]/255.0, data[j][4]/255.0
+            instances[j] = data[j]
+
+    return data, instances
+
 running = True
 
 program_rect = load_rect_program(ctx, 'shaders/rect.vert', 'shaders/rect.frag')
@@ -115,35 +141,44 @@ program_point = load_point_program(ctx, 'shaders/point.vert', 'shaders/point.fra
 
 program_rect["u_aspect"] = aspect
 
-#[x,y, r,g,b, thickness, scale_x,scale_y, rotation]
+# 4 bytes x 9 floats
+rstride = 4*9
+
+# x,y: pygame coords
+# r,g,b: standard 0-255 range
+# thickness: boundary thickness 0-1
+# scale: scaling factor
+# rotation: degrees
+
+# check scripts and globals for defaults
+
+#       [x,y,     r,g,b,       thickness, scale_x,scale_y, rotation]
 all_rects = [
-        [0,0,     1.0,1.0,1.0,  0.08,  0.5,0.5,  0],         #player
-        [300,300, 1.0,0.0,0.0,  1.0,   5.0,5.0,  0]]
+        [0,0,     255,255,255,  0.08,       0.5,0.5,          0],   #player
+        [300,300, 255,0,0,      1.0,        5.0,5.0,          0]]
 rect_instances = np.zeros((N, 9), dtype='f4')
 
-stride = 8*9
-
-#[x,y, r,g,b, scale]
-all_points = [[150,150, 1.0,1.0,1.0, 1.0]]
+#             [x,y,     r,g,b,       scale]
+all_points = [[150,150, 255,255,255, 1.0]]
 point_instances = np.zeros((N, 6), dtype='f4')
 
-for i in range(len(all_rects)):
-    all_rects[i][-1] = math.radians(all_rects[i][-1])
-    all_rects[i][0], all_rects[i][1] = convert_to_clip_space(all_rects[i][0], all_rects[i][1])
-    rect_instances[i] = all_rects[i]
+# Convert to gl format
+all_rects, rect_instances = to_gl(all_rects, rect_instances, 'rect')
+all_points, point_instances = to_gl(all_points, point_instances, 'point')
 
-for j in range(len(all_points)):
-    all_points[j][0], all_points[j][1] = convert_to_clip_space(all_points[j][0], all_points[j][1])
-    point_instances[j] = all_points[j]
-
-p_index = 0
-
-speed = 10
-px,py = 0,0
-
+# Build rects and points vaos and vbos
 rect_vao, rvbo = build_rect_instances(ctx, program_rect, rect_instances)
 point_vao, pvbo = build_point_instances(ctx, program_point, point_instances)
 
+# Pointer set to modify rect instance
+p_index = 0
+
+# speed: movement speed
+# px,py: pygame coords
+speed = 10
+px,py = 0,0
+
+# Array of indices of collided objs
 collided = []
 
 while running:
@@ -167,10 +202,9 @@ while running:
             py = max(0, min(HEIGHT, py))
 
             if event.key in [pygame.K_a, pygame.K_d, pygame.K_w, pygame.K_s]:
-
                 all_rects[p_index][0], all_rects[p_index][1] = convert_to_clip_space(px, py)
                 rect_instances = update_instances(p_index, all_rects, rect_instances)
-                rvbo.write(rect_instances[p_index].tobytes(), offset=p_index*stride)
+                rvbo.write(rect_instances[p_index].tobytes(), offset=p_index*rstride)
 
             #collided = check_collision(all_rects[p_index], all_rects[p_index+1:])
 
