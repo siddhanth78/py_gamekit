@@ -28,20 +28,8 @@ N=5000
 
 aspect = WIDTH/HEIGHT
 
-# Load rect shader
-def load_rect_program(ctx, vert_path, frag_path):
-    with open(vert_path, 'r') as vf:
-        v_code = vf.read()
-    with open(frag_path, 'r') as ff:
-        f_code = ff.read()
-
-    return ctx.program(
-                vertex_shader = v_code,
-                fragment_shader = f_code
-            )
-
-# Load point shader
-def load_point_program(ctx, vert_path, frag_path):
+# Load shader
+def load_program(ctx, vert_path, frag_path):
     with open(vert_path, 'r') as vf:
         v_code = vf.read()
     with open(frag_path, 'r') as ff:
@@ -85,6 +73,32 @@ def build_point_objs(ctx, program, instances):
     vao = ctx.vertex_array(
             program,
             [(ivbo, '2f 3f 1f /i', 'in_offset', 'in_color', 'in_scale')],
+            )
+    return vao, ivbo
+
+# Build tex instances
+def build_tex_objs(ctx, program, instances):
+    vertices = np.array([
+        -0.1,-0.1,   0.0,0.0,
+        0.1,-0.1,   1.0,0.0,
+        0.1, 0.1,   1.0,1.0,
+        -0.1, 0.1,   0.0,1.0
+        ], dtype="f4")
+
+    indices = np.array([
+        0, 1, 2,
+        0, 3, 2
+        ], dtype="i4")
+
+    quad_vbo = ctx.buffer(vertices.tobytes())
+    quad_ibo = ctx.buffer(indices.tobytes())
+    ivbo = ctx.buffer(instances.tobytes())
+
+    vao = ctx.vertex_array(
+            program,
+            [(quad_vbo, '2f 2f', 'quad_position', 'quad_uv'),
+             (ivbo, '2f 3f 1f 2f 1f 2f /i', 'in_offset', 'in_color', 'in_thickness', 'in_scale', 'in_rotation', 'in_tile')],
+            index_buffer=quad_ibo
             )
     return vao, ivbo
 
@@ -158,7 +172,7 @@ def sat_collision(poly1, poly2):
 def check_collision(player, obstacles, type_):
     all_collided = []
 
-    if type_ == 'rect':
+    if type_ in ['rect','tex']:
         player_corners = get_rect_corners(player[0], player[1], player[6], player[7], player[8])
         for o in range(len(obstacles)):
             obs_corners = get_rect_corners(obstacles[o][0], obstacles[o][1],
@@ -185,7 +199,7 @@ def check_mouse_collisions(mx, my, data, type_):
             half_p_y = half_p * (2/HEIGHT)
             if (data[i][0]-half_p_x <= mx <= data[i][0]+half_p_x) and (data[i][1]-half_p_y <= my <= data[i][1]+half_p_y):
                 all_collided.append(i)
-        elif type_ == 'rect':
+        elif type_ in ['rect','tex']:
             if point_in_rotated_rect(mx, my, data[i][0], data[i][1], data[i][6], data[i][7], data[i][8]):
                 all_collided.append(i)
     return all_collided
@@ -195,7 +209,7 @@ def check_mouse_collisions(mx, my, data, type_):
 # coords -> gl clip space coords
 # rgb -> 0-1 norm
 def to_gl(data, instances, type_):
-    if type_ == 'rect':
+    if type_ in ['rect','tex']:
         for i in range(len(data)):
             data[i][-1] = math.radians(data[i][-1])
             data[i][0], data[i][1] = convert_to_clip_space(data[i][0], data[i][1])
@@ -217,18 +231,31 @@ def modify_rgb(idx, data, r,g,b):
     data[idx][2],data[idx][3],data[idx][4] = r,g,b
     return data
 
+def load_texture(ctx, path):
+    surface = pygame.image.load(path).convert_alpha()
+    #surface = pygame.transform.flip(surface, False, True)
+    data = pygame.image.tobytes(surface, 'RGBA', True)
+    texture = ctx.texture(surface.get_size(), 4, data)
+    texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
+    return texture
+
 running = True
 
-program_rect = load_rect_program(ctx, 'shaders/rect.vert', 'shaders/rect.frag')
-program_point = load_point_program(ctx, 'shaders/point.vert', 'shaders/point.frag')
+program_rect = load_program(ctx, 'shaders/rect.vert', 'shaders/rect.frag')
+program_point = load_program(ctx, 'shaders/point.vert', 'shaders/point.frag')
+program_tex = load_program(ctx, 'shaders/tex.vert', 'shaders/tex.frag')
 
 program_rect["u_aspect"] = aspect
+program_tex["u_aspect"] = aspect
 
 # 4 bytes x 9 floats (rects)
 rstride = 4*9
 
 # 4 bytes x 6 floats (points)
 pstride = 4*6
+
+# 4 bytes x 11 floats (tex)
+tstride = 4*11
 
 # x,y: pygame coords
 # r,g,b: standard 0-255 range
@@ -240,7 +267,7 @@ pstride = 4*6
 
 #       [x,y,     r,g,b,       thickness, scale_x,scale_y, rotation]
 all_rects = [
-        [0,0,     255,255,255,  0.08,       0.5,0.5,          0],   #player
+        [200,200, 255,255,255,  0.08,       0.5,0.5,          0],
         [300,300, 255,0,0,      1.0,        5.0,5.0,          0]]
 rect_instances = np.zeros((N, 9), dtype='f4')
 
@@ -248,24 +275,37 @@ rect_instances = np.zeros((N, 9), dtype='f4')
 all_points = [[150,150, 255,255,255, 1.0]]
 point_instances = np.zeros((N, 6), dtype='f4')
 
-# Convert to gl format and populate instance arrays
-all_rects, rect_instances = to_gl(all_rects, rect_instances, 'rect')
-all_points, point_instances = to_gl(all_points, point_instances, 'point')
+#Player texture
+#          [x,y,     r,g,b,       thickness, scale_x,scale_y, rotation,   tile]
+all_tex = [[0,0, 255,255,255,    0,         1.0,1.0,         0,       0,0]]
+tex_instances = np.zeros((N, 11), dtype='f4')
 
-# Build rects and points vaos and vbos
-rect_vao, rvbo = build_rect_objs(ctx, program_rect, rect_instances)
-point_vao, pvbo = build_point_objs(ctx, program_point, point_instances)
-
-# Pointer set to modify rect instance
+# Pointer set to modify tex instance
 p_index = 0
 
 # speed: movement speed
 # px,py: pygame coords
 speed = 10
-px,py = 0,0
+px,py = all_tex[p_index][0], all_tex[p_index][1]
+
+# Convert to gl format and populate instance arrays
+all_rects, rect_instances = to_gl(all_rects, rect_instances, 'rect')
+all_points, point_instances = to_gl(all_points, point_instances, 'point')
+all_tex, tex_instances = to_gl(all_tex, tex_instances, 'tex')
+
+# Load atlas textures
+atlas_texture = load_texture(ctx, 'character.png') #Uniform-sized atlas
+atlas_texture.use(location=0) #GPU slot 0
+program_tex['u_texture'] = 0
+program_tex["u_atlas_grid"] = (1.0, 1.0) #atlas size
+
+# Build rects and points vaos and vbos
+rect_vao, rvbo = build_rect_objs(ctx, program_rect, rect_instances)
+point_vao, pvbo = build_point_objs(ctx, program_point, point_instances)
+tex_vao, tvbo = build_tex_objs(ctx, program_tex, tex_instances)
 
 # Array of indices of collided objs
-collided = []
+collisions = []
 mouse_collisions = []
 
 while running:
@@ -292,9 +332,21 @@ while running:
             py = max(0, min(HEIGHT, py))
 
             if event.key in [pygame.K_a, pygame.K_d, pygame.K_w, pygame.K_s]:
-                all_rects = modify_xy(p_index, all_rects, px, py)
-                rect_instances = update_instances(p_index, all_rects, rect_instances, convert_rgb=False)
-                rvbo.write(rect_instances[p_index].tobytes(), offset=p_index*rstride)
+                all_tex = modify_xy(p_index, all_tex, px, py)
+                tex_instances = update_instances(p_index, all_tex, tex_instances, convert_rgb=False)
+                tvbo.write(tex_instances[p_index].tobytes(), offset=p_index*tstride)
+
+                collisions = check_collision(all_tex[p_index], all_rects, 'rect')
+                if collisions:
+                    idx = collisions[0]
+                    all_rects = modify_rgb(idx, all_rects, 255,0,255)
+                    rect_instances = update_instances(idx, all_rects, rect_instances, convert_xy=False)
+                    rvbo.write(rect_instances[idx].tobytes(), offset=idx*rstride)
+                else:
+                    for ar in range(len(all_rects)):
+                        all_rects = modify_rgb(ar, all_rects, 255,0,0)
+                        rect_instances = update_instances(ar, all_rects, rect_instances, convert_xy=False)
+                        rvbo.write(rect_instances[ar].tobytes(), offset=ar*rstride)
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
                 mouse_collisions = check_mouse_collisions(mx,my,all_rects,'rect')
@@ -324,6 +376,7 @@ while running:
     
     rect_vao.render(moderngl.TRIANGLES, instances=len(all_rects))
     point_vao.render(moderngl.POINTS, vertices=1, instances=len(all_points))
+    tex_vao.render(moderngl.TRIANGLES, instances=len(all_tex))
 
     pygame.display.flip()
     clock.tick(60)
