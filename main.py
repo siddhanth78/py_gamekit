@@ -103,24 +103,81 @@ def update_instances(idx, data, instances, convert_xy=True, convert_rgb=True):
     instances[idx] = data[idx]
     return instances
 
+# Point vs rotated rect (used by both collision checks below)
+def point_in_rotated_rect(px, py, cx, cy, scale_x, scale_y, rotation):
+    dx = (px - cx) * aspect
+    dy = py - cy
+    cos_a, sin_a = math.cos(rotation), math.sin(rotation)
+    lx = dx * cos_a + dy * sin_a
+    ly = -dx * sin_a + dy * cos_a
+    hx, hy = 0.1 * scale_x, 0.1 * scale_y
+    return abs(lx) <= hx and abs(ly) <= hy
+
+
+# World-space corners of a rotated rect
+def get_rect_corners(cx, cy, scale_x, scale_y, rotation):
+    hx, hy = 0.1 * scale_x, 0.1 * scale_y
+    local = [(-hx,-hy), (hx,-hy), (hx,hy), (-hx,hy)]
+    cos_a, sin_a = math.cos(rotation), math.sin(rotation)
+    corners = []
+    for lx, ly in local:
+        rx = lx*cos_a - ly*sin_a
+        ry = lx*sin_a + ly*cos_a
+        rx /= aspect
+        corners.append((cx+rx, cy+ry))
+    return corners
+
+
+def _project(poly, axis):
+    dots = [x*axis[0] + y*axis[1] for x, y in poly]
+    return min(dots), max(dots)
+
+
+def _overlap_on_axis(poly1, poly2, axis):
+    min1, max1 = _project(poly1, axis)
+    min2, max2 = _project(poly2, axis)
+    return max1 >= min2 and max2 >= min1
+
+
+def sat_collision(poly1, poly2):
+    for poly in (poly1, poly2):
+        for i in range(len(poly)):
+            x1, y1 = poly[i]
+            x2, y2 = poly[(i+1) % len(poly)]
+            axis = (-(y2-y1), x2-x1)
+            length = math.hypot(*axis)
+            if length == 0:
+                continue
+            axis = (axis[0]/length, axis[1]/length)
+            if not _overlap_on_axis(poly1, poly2, axis):
+                return False
+    return True
+
+
 # Check 2d collisions
-def check_collision(player, obstacles):
+def check_collision(player, obstacles, type_):
     all_collided = []
-    for o in range(len(obstacles)):
-        p_half_x = (0.1 * player[6])/aspect
-        p_half_y = 0.1 * player[7]
-        o_half_x = (0.1 * obstacles[o][6])/aspect
-        o_half_y = 0.1 * obstacles[o][7]
-        if (player[0] - p_half_x < obstacles[o][0] + o_half_x and
-            player[0] + p_half_x > obstacles[o][0] - o_half_x and
-            player[1] - p_half_y < obstacles[o][1] + o_half_y and
-            player[1] + p_half_y > obstacles[o][1] - o_half_y):
-            all_collided.append(o)
+
+    if type_ == 'rect':
+        player_corners = get_rect_corners(player[0], player[1], player[6], player[7], player[8])
+        for o in range(len(obstacles)):
+            obs_corners = get_rect_corners(obstacles[o][0], obstacles[o][1],
+                                            obstacles[o][6], obstacles[o][7], obstacles[o][8])
+            if sat_collision(player_corners, obs_corners):
+                all_collided.append(o)
+
+    elif type_ == 'point':
+        for o in range(len(obstacles)):
+            px, py = obstacles[o][0], obstacles[o][1]
+            if point_in_rotated_rect(px, py, player[0], player[1], player[6], player[7], player[8]):
+                all_collided.append(o)
+
     return all_collided
 
-def check_mouse_collisions(mx,my, data, type_):
+
+def check_mouse_collisions(mx, my, data, type_):
     all_collided = []
-    mx,my = convert_to_clip_space(mx,my)
+    mx, my = convert_to_clip_space(mx, my)
     for i in range(len(data)):
         if type_ == 'point':
             half_p = 10*data[i][5]
@@ -129,12 +186,7 @@ def check_mouse_collisions(mx,my, data, type_):
             if (data[i][0]-half_p_x <= mx <= data[i][0]+half_p_x) and (data[i][1]-half_p_y <= my <= data[i][1]+half_p_y):
                 all_collided.append(i)
         elif type_ == 'rect':
-            r_half_x = (0.1 * data[i][6])/aspect
-            r_half_y = 0.1 * data[i][7]
-            if (mx < data[i][0] + r_half_x and
-                mx > data[i][0] - r_half_x and
-                my < data[i][1] + r_half_y and
-                my > data[i][1] - r_half_y):
+            if point_in_rotated_rect(mx, my, data[i][0], data[i][1], data[i][6], data[i][7], data[i][8]):
                 all_collided.append(i)
     return all_collided
 
