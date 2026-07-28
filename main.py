@@ -58,7 +58,7 @@ all_points = [[150,150, 255,255,255, 1.0]]
 
 #Player texture
 #          [x,y,     r,g,b,      thickness(value doesn't matter just filler), scale_x,scale_y, rotation,   tile]
-all_tex = [[0,0,     255,255,255,    0,                                          1.0,1.0,         0,       0,0]]
+all_tex = [[32,32,     255,255,255,    0,                                          1.0,1.0,         0,       0,0]]
 
 rect_instances, point_instances, tex_instances = get_new_instances(rn, pn, tn)
 
@@ -114,8 +114,8 @@ while running:
             elif event.key == pygame.K_s:
                 py += speed
 
-            px = max(0, min(WIDTH, px))
-            py = max(0, min(HEIGHT, py))
+            px = max(32, min(WIDTH-32, px))
+            py = max(32, min(HEIGHT-32, py))
 
             if event.key in [pygame.K_a, pygame.K_d, pygame.K_w, pygame.K_s]:
                 all_tex = modify_xy(p_index, all_tex, px, py)
