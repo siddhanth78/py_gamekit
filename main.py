@@ -304,7 +304,7 @@ rect_vao, rvbo = build_rect_objs(ctx, program_rect, rect_instances)
 point_vao, pvbo = build_point_objs(ctx, program_point, point_instances)
 tex_vao, tvbo = build_tex_objs(ctx, program_tex, tex_instances)
 
-# Array of indices of collided objs
+# Array of indices of collided objs (rect type and tex type collisions are interchangable due to structural similarities)
 collisions = []
 mouse_collisions = []
 
