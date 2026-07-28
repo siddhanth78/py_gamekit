@@ -277,7 +277,7 @@ point_instances = np.zeros((N, 6), dtype='f4')
 
 #Player texture
 #          [x,y,     r,g,b,       thickness, scale_x,scale_y, rotation,   tile]
-all_tex = [[0,0, 255,255,255,    0,         1.0,1.0,         0,       0,0]]
+all_tex = [[0,0,     255,255,255,    0,         1.0,1.0,         0,       0,0]]
 tex_instances = np.zeros((N, 11), dtype='f4')
 
 # Pointer set to modify tex instance
