@@ -6,6 +6,15 @@ import pygame
 WIDTH, HEIGHT = 800, 600
 aspect = WIDTH/HEIGHT
 
+# 4 bytes x 9 floats (rects)
+rstride = 4*9
+
+# 4 bytes x 6 floats (points)
+pstride = 4*6
+
+# 4 bytes x 11 floats (tex)
+tstride = 4*11
+
 # Empty instances
 def get_new_instances(rn, pn, tn):
     rect_instances = np.zeros((rn, 9), dtype='f4')

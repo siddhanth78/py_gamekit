@@ -36,15 +36,6 @@ program_tex = load_program(ctx, 'shaders/tex.vert', 'shaders/tex.frag')
 program_rect["u_aspect"] = aspect
 program_tex["u_aspect"] = aspect
 
-# 4 bytes x 9 floats (rects)
-rstride = 4*9
-
-# 4 bytes x 6 floats (points)
-pstride = 4*6
-
-# 4 bytes x 11 floats (tex)
-tstride = 4*11
-
 # x,y: pygame coords
 # r,g,b: standard 0-255 range
 # thickness: boundary thickness 0-1
