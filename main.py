@@ -48,7 +48,8 @@ program_tex["u_aspect"] = aspect
 #       [x,y,     r,g,b,       thickness, scale_x,scale_y, rotation]
 all_rects = [
         [200,200, 255,255,255,  0.08,       0.5,0.5,          0],
-        [300,300, 255,0,0,      1.0,        5.0,5.0,          0]]
+        [300,300, 255,0,0,      1.0,        0.5,0.5,          0],
+        [350,300, 255,0,0,      1.0,        0.5,0.5,          0]]
 
 
 #             [x,y,     r,g,b,       scale]
@@ -87,7 +88,11 @@ tex_vao, tvbo = build_tex_objs(ctx, program_tex, tex_instances)
 
 # Array of indices of collided objs (rect type and tex type collisions are interchangable due to structural similarities)
 collisions = []
+previous_collisions = set()
+current_collisions = set()
 mouse_collisions = []
+
+dirty = False
 
 while running:
 
@@ -117,17 +122,31 @@ while running:
                 tex_instances = update_instances(p_index, all_tex, tex_instances, convert_rgb=False, convert_rot=False)
                 tvbo.write(tex_instances[p_index].tobytes(), offset=p_index*tstride)
 
-                collisions = check_collision(all_tex[p_index], all_rects, 'rect')
-                if collisions:
-                    idx = collisions[0]
-                    all_rects = modify_rgb(idx, all_rects, 255,0,255)
-                    rect_instances = update_instances(idx, all_rects, rect_instances, convert_xy=False, convert_rot=False)
-                    rvbo.write(rect_instances[idx].tobytes(), offset=idx*rstride)
-                else:
-                    for ar in range(len(all_rects)):
-                        all_rects = modify_rgb(ar, all_rects, 255,0,0)
+                previous_collisions = set(collisions)
+                collisions = check_collision(all_tex[p_index], all_rects, 'rect') + check_collision(all_tex[p_index], all_points, 'point')
+                current_collisions = set(collisions)
+
+                for t,idx in current_collisions - previous_collisions:
+                    if t == 'rt':
+                        all_rects = modify_rgb(idx, all_rects, 255,0,255)
+                        rect_instances = update_instances(idx, all_rects, rect_instances, convert_xy=False, convert_rot=False)
+                        rvbo.write(rect_instances[idx].tobytes(), offset=idx*rstride)
+                    elif t == 'p':
+                        all_points = modify_rgb(idx, all_points, 255,0,255)
+                        point_instances = update_instances(idx, all_points, point_instances, convert_xy=False, convert_rot=False)
+                        pvbo.write(point_instances[idx].tobytes(), offset=idx*pstride)
+                for t_,ar in previous_collisions - current_collisions:
+                    if t_ == 'rt':
+                        r,g,b = (255,255,255) if ar == 0 else (255, 0,0)
+                        all_rects = modify_rgb(ar, all_rects, r,g,b)
                         rect_instances = update_instances(ar, all_rects, rect_instances, convert_xy=False, convert_rot=False)
                         rvbo.write(rect_instances[ar].tobytes(), offset=ar*rstride)
+                    elif t_ == 'p':
+                        r,g,b = (255,255,255)
+                        all_points = modify_rgb(ar, all_points, r,g,b)
+                        point_instances = update_instances(ar, all_points, point_instances, convert_xy=False, convert_rot=False)
+                        pvbo.write(point_instances[ar].tobytes(), offset=ar*pstride)
+                previous_collisions = current_collisions
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
                 mouse_collisions = check_mouse_collisions(mx,my,all_rects,'rect')

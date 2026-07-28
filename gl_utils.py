@@ -175,13 +175,13 @@ def check_collision(player, obstacles, type_):
             obs_corners = get_rect_corners(obstacles[o][0], obstacles[o][1],
                                             obstacles[o][6], obstacles[o][7], obstacles[o][8])
             if sat_collision(player_corners, obs_corners):
-                all_collided.append(o)
+                all_collided.append(('rt', o))
 
     elif type_ == 'point':
         for o in range(len(obstacles)):
             px, py = obstacles[o][0], obstacles[o][1]
             if point_in_rotated_rect(px, py, player[0], player[1], player[6], player[7], player[8]):
-                all_collided.append(o)
+                all_collided.append(('p',o))
 
     return all_collided
 
