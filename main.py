@@ -294,7 +294,7 @@ all_points, point_instances = to_gl(all_points, point_instances, 'point')
 all_tex, tex_instances = to_gl(all_tex, tex_instances, 'tex')
 
 # Load atlas textures
-atlas_texture = load_texture(ctx, 'character.png') #Uniform-sized atlas
+atlas_texture = load_texture(ctx, 'assets/character.png') #Uniform-sized atlas
 atlas_texture.use(location=0) #GPU slot 0
 program_tex['u_texture'] = 0
 program_tex["u_atlas_grid"] = (1.0, 1.0) #atlas size
