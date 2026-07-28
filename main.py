@@ -56,8 +56,8 @@ all_points = [[150,150, 255,255,255, 1.0]]
 
 
 #Player texture
-#          [x,y,     r,g,b,       thickness, scale_x,scale_y, rotation,   tile]
-all_tex = [[0,0,     255,255,255,    0,         1.0,1.0,         0,       0,0]]
+#          [x,y,     r,g,b,      thickness(value doesn't matter just filler), scale_x,scale_y, rotation,   tile]
+all_tex = [[0,0,     255,255,255,    0,                                          1.0,1.0,         0,       0,0]]
 
 rect_instances, point_instances, tex_instances = get_new_instances(rn, pn, tn)
 
@@ -114,19 +114,19 @@ while running:
 
             if event.key in [pygame.K_a, pygame.K_d, pygame.K_w, pygame.K_s]:
                 all_tex = modify_xy(p_index, all_tex, px, py)
-                tex_instances = update_instances(p_index, all_tex, tex_instances, convert_rgb=False)
+                tex_instances = update_instances(p_index, all_tex, tex_instances, convert_rgb=False, convert_rot=False)
                 tvbo.write(tex_instances[p_index].tobytes(), offset=p_index*tstride)
 
                 collisions = check_collision(all_tex[p_index], all_rects, 'rect')
                 if collisions:
                     idx = collisions[0]
                     all_rects = modify_rgb(idx, all_rects, 255,0,255)
-                    rect_instances = update_instances(idx, all_rects, rect_instances, convert_xy=False)
+                    rect_instances = update_instances(idx, all_rects, rect_instances, convert_xy=False, convert_rot=False)
                     rvbo.write(rect_instances[idx].tobytes(), offset=idx*rstride)
                 else:
                     for ar in range(len(all_rects)):
                         all_rects = modify_rgb(ar, all_rects, 255,0,0)
-                        rect_instances = update_instances(ar, all_rects, rect_instances, convert_xy=False)
+                        rect_instances = update_instances(ar, all_rects, rect_instances, convert_xy=False, convert_rot=False)
                         rvbo.write(rect_instances[ar].tobytes(), offset=ar*rstride)
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
@@ -134,11 +134,11 @@ while running:
                 if mouse_collisions:
                     idx = mouse_collisions[0]
                     all_rects = modify_rgb(idx, all_rects, 255,0,255)
-                    rect_instances = update_instances(idx, all_rects, rect_instances, convert_xy=False)
+                    rect_instances = update_instances(idx, all_rects, rect_instances, convert_xy=False, convert_rot=False)
                     rvbo.write(rect_instances[idx].tobytes(), offset=idx*rstride)
                 else:
                     all_points.append([mx,my, 255,255,255, 1.0])
-                    point_instances = update_instances(len(all_points)-1, all_points, point_instances)
+                    point_instances = update_instances(len(all_points)-1, all_points, point_instances, convert_rot=False)
                     pvbo.write(point_instances[len(all_points)-1].tobytes(), offset=(len(all_points)-1)*pstride)
             elif event.button == 3:
                 mouse_collisions = check_mouse_collisions(mx,my,all_points,'point')

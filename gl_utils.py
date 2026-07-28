@@ -104,11 +104,13 @@ def convert_to_clip_space(x,y):
     return cx, cy
 
 # Update instance via index
-def update_instances(idx, data, instances, convert_xy=True, convert_rgb=True):
+def update_instances(idx, data, instances, convert_xy=True, convert_rgb=True, convert_rot=True):
     if convert_xy == True:
         data[idx][0], data[idx][1] = convert_to_clip_space(data[idx][0], data[idx][1])
     if convert_rgb == True:
         data[idx][2], data[idx][3], data[idx][4] = data[idx][2]/255.0, data[idx][3]/255.0, data[idx][4]/255.0
+    if convert_rot == True and len(data[idx]) > 6:
+        data[idx][8] = math.radians(data[idx][8])
     instances[idx] = data[idx]
     return instances
 
@@ -206,7 +208,7 @@ def check_mouse_collisions(mx, my, data, type_):
 def to_gl(data, instances, type_):
     if type_ in ['rect','tex']:
         for i in range(len(data)):
-            data[i][-1] = math.radians(data[i][-1])
+            data[i][8] = math.radians(data[i][8])
             data[i][0], data[i][1] = convert_to_clip_space(data[i][0], data[i][1])
             data[i][2], data[i][3], data[i][4] = data[i][2]/255.0, data[i][3]/255.0, data[i][4]/255.0
             instances[i] = data[i]
@@ -224,6 +226,28 @@ def modify_xy(idx, data, x, y):
 
 def modify_rgb(idx, data, r,g,b):
     data[idx][2],data[idx][3],data[idx][4] = r,g,b
+    return data
+
+def modify_scale(idx, data, sx, sy, type_):
+    if type_ in ['rect', 'tex']:
+        data[idx][6],data[idx][7] = sx,sy
+    elif type_ == 'point':
+        data[idx][5] = sx
+    return data
+
+def modify_rot(idx, data, angle, type_='rect'):
+    if type_ in ['rect', 'tex']:
+        data[idx][8] = angle
+    return data
+
+def modify_thickness(idx, data, factor, type_='rect'):
+    if type_ == 'rect':
+        data[idx][5] = factor
+    return data
+
+def modify_texture(idx, data, tilex, tiley, type_='tex'):
+    if type_ == 'tex':
+        data[idx][9],data[idx][10] = tilex,tiley
     return data
 
 def load_texture(ctx, path):
