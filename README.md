@@ -2,7 +2,8 @@
 
 `gl_utils.py` provides a small, fixed-layout 2D renderer built on pygame,
 ModernGL, and NumPy. It supports instanced rectangles, points, and textured
-rectangles, plus picking and collision helpers.
+rectangles; native line segments and polylines; arbitrary polygon outlines;
+convex polygon fills; plus picking and collision helpers.
 
 This document describes the module's data contracts, initialization order,
 rendering API, update workflow, and collision API.
@@ -29,6 +30,8 @@ gl_utils.py
 shaders/
 ├── point.vert
 ├── point.frag
+├── line.vert
+├── line.frag
 ├── rect.vert
 ├── rect.frag
 ├── tex.vert
@@ -247,6 +250,40 @@ white `(255, 255, 255)` to preserve the texture's original RGB color.
 
 `tile_x` and `tile_y` select a cell from a uniform texture atlas.
 
+### Lines, polylines, and polygons
+
+Lines use a list of pygame pixel-coordinate pairs rather than a fixed object
+record:
+
+```python
+points = [(x1, y1), (x2, y2), ...]
+rgba = (r, g, b, a)
+```
+
+The same point list can be rendered in three ways:
+
+| Render mode | Interpretation |
+| --- | --- |
+| `moderngl.LINES` | Each pair of points is an independent segment: `0→1`, `2→3`, and so on. |
+| `moderngl.LINE_STRIP` | An open chain: `0→1→2→3`. |
+| `moderngl.LINE_LOOP` | A closed polygon outline: `0→1→2→3→0`. |
+| `moderngl.TRIANGLE_FAN` | A filled convex polygon using the same perimeter points. |
+
+A single line segment contains two coordinate pairs:
+
+```python
+segment = [(100, 100), (500, 300)]
+```
+
+A hexagon contains six coordinate pairs when rendered with `LINE_LOOP`. Do not
+repeat the first point because `LINE_LOOP` closes the last edge automatically.
+If the same shape is rendered with `LINE_STRIP`, repeat the first point as a
+seventh entry to close it.
+
+Lines and polygons do not use the instanced object arrays. Convex polygon
+collision can use the same point list, but collision is independent of the
+rendered line width.
+
 ## Creating instance storage
 
 ```python
@@ -300,6 +337,35 @@ tex_vao, tex_vbo = build_tex_objs(ctx, tex_program, tex_instances)
 Keep both returned objects. Use the VAO for rendering and the VBO for partial
 updates.
 
+Lines use `build_line_obj()` instead of an instance array:
+
+```python
+line_program = load_program(ctx, "shaders/line.vert", "shaders/line.frag")
+
+polygon = [(100, 100), (300, 100), (350, 250), (200, 350), (50, 250)]
+polygon_vao, polygon_vbo = build_line_obj(
+    ctx,
+    line_program,
+    polygon,
+    (255, 200, 80, 255),
+)
+```
+
+`build_line_obj()` converts the pygame coordinates and 0-255 RGBA color. Do not
+call `to_gl()` on line points.
+
+For a polygon, use `build_polygon_obj()`. It has the same return values and data
+format. At least two points are required for an outline:
+
+```python
+polygon_vao, polygon_vbo = build_polygon_obj(
+    ctx,
+    line_program,
+    polygon,
+    (255, 200, 80, 160),
+)
+```
+
 ### Required shader interfaces
 
 Custom shaders may be used, but their attribute names and layouts must match
@@ -323,6 +389,13 @@ Point vertex shader inputs:
 in vec2 in_offset;
 in vec4 in_color;
 in float in_scale;
+```
+
+Line vertex shader inputs:
+
+```glsl
+in vec2 in_position;
+in vec4 in_color;
 ```
 
 Texture vertex shader inputs:
@@ -363,6 +436,42 @@ tex_vao.render(moderngl.TRIANGLES, instances=len(sprites))
 
 Rendering the capacity would also draw the unused zero-filled records.
 
+Render line data with a mode matching the intended connectivity:
+
+```python
+# Exactly one segment when segment contains two points.
+segment_vao.render(moderngl.LINES, vertices=len(segment))
+
+# Every adjacent point is connected; the ends remain open.
+polyline_vao.render(moderngl.LINE_STRIP, vertices=len(polyline))
+
+# Every adjacent point is connected and the last connects to the first.
+render_polygon(polygon_vao, polygon, fill=False)
+
+# Fill the same convex polygon using its RGBA color.
+render_polygon(polygon_vao, polygon, fill=True)
+```
+
+`render_polygon()` uses `LINE_LOOP` for an outline. When `fill=True`, it first
+checks whether the points describe a simple, non-degenerate convex polygon. A
+valid polygon uses `TRIANGLE_FAN`; otherwise the function automatically falls
+back to `LINE_LOOP`. Its Boolean return value reports whether filling occurred.
+The fill result is cached using every point relative to the first point. Moving
+the whole polygon or changing RGBA reuses the cached result; changing its
+internal shape triggers validation. The cache retains at most 256 shapes.
+Polygon rendering always closes the last point back to the first; an open
+polyline has no interior and cannot be filled. Use `LINE_STRIP` for open data.
+
+Native line width is context-wide:
+
+```python
+ctx.line_width = 1.0
+```
+
+Many OpenGL core-profile drivers support only a width of `1.0`, even when a
+larger value is requested. Use rotated rectangles when consistent thick lines,
+custom joins, or custom end caps are required.
+
 ### Alpha blending
 
 Every object record contains alpha in the 0-255 range before conversion. Enable
@@ -376,23 +485,6 @@ ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
 An alpha of `255` is fully opaque, `0` is fully transparent, and values between
 them are translucent. Objects are blended in draw order, so draw background
 objects before foreground objects. The module does not sort transparent objects.
-
-### Interactive alpha test
-
-`hover_alpha_test.py` is a standalone, asset-free RGBA test. It displays three
-rectangles at full opacity and changes a rectangle to approximately 50% opacity
-while the mouse is over it. Moving the mouse away restores full opacity.
-
-Run it from the project directory so the relative shader paths resolve:
-
-```bash
-python3 hover_alpha_test.py
-```
-
-Press `Esc` or close the window to exit. The test enables blending with
-`SRC_ALPHA` and `ONE_MINUS_SRC_ALPHA`, uses `check_mouse_collisions()` for hover
-detection, and uploads a new alpha value only when a rectangle's hover state
-changes.
 
 ## Loading textures and atlases
 
@@ -432,6 +524,30 @@ tex_vao, tex_vbo = build_tex_objs(ctx, tex_program, tex_instances)
 ```
 
 The texture must remain bound to the configured texture unit while rendering.
+
+## Updating a line or polygon
+
+`update_line_obj(vbo, points, rgba)` replaces line vertex data and returns the
+new vertex count. Use `update_polygon_obj()` for a polygon; it applies the same
+update and permits any outline containing at least two points:
+
+```python
+from gl_utils import render_polygon, update_polygon_obj
+
+polygon = [(120, 100), (340, 120), (300, 320), (100, 280)]
+update_polygon_obj(
+    polygon_vbo,
+    polygon,
+    (255, 120, 40, 180),
+)
+
+render_polygon(polygon_vao, polygon, fill=True)
+```
+
+The updated data may contain the same number or fewer points than the data used
+to create the buffer. If it contains more points, rebuild the VAO and VBO with
+`build_polygon_obj()` so the GPU buffer is large enough. Always render the
+updated point list so `render_polygon()` uses the new vertex count.
 
 ## Updating an existing object
 
@@ -613,7 +729,7 @@ from gl_utils import check_collision
 hits = check_collision(sprites[0], rects, "rect")
 ```
 
-The first argument is the rectangle-shaped object being tested. The second is
+The first argument is the rectangle-shaped object being checked. The second is
 the obstacle list. Use either `"rect"` or `"tex"` for rectangle-shaped
 obstacles. Rotated rectangle collision uses the separating axis theorem and
 accounts for scale and aspect ratio.
@@ -636,6 +752,40 @@ argument:
 ```python
 [("p", 1)]
 ```
+
+### Convex polygon collision
+
+Polygon collision is intentionally limited to convex polygons. List vertices in
+clockwise or counterclockwise perimeter order and do not include interior
+points. The same pygame-coordinate point lists used by `build_line_obj()` may be
+passed directly to the collision helpers.
+
+Check two convex polygons:
+
+```python
+from gl_utils import check_convex_polygon_collision
+
+triangle = [(100, 100), (240, 180), (120, 300)]
+hexagon = [(500, 180), (600, 240), (600, 360),
+           (500, 420), (400, 360), (400, 240)]
+
+if check_convex_polygon_collision(triangle, hexagon):
+    print("The polygons overlap")
+```
+
+Check a convex polygon against a rectangle or textured-rectangle record that has
+already passed through `to_gl()`:
+
+```python
+from gl_utils import check_convex_polygon_rect_collision
+
+if check_convex_polygon_rect_collision(hexagon, rects[0]):
+    print("The hexagon overlaps the rectangle")
+```
+
+Both functions return a Boolean and count touching edges as a collision. They
+convert polygon points from pygame pixels internally. Concave and
+self-intersecting polygons are unsupported and raise `ValueError`.
 
 ### Mouse picking
 
@@ -685,6 +835,49 @@ Builds rectangle quad geometry and returns `(vao, instance_vbo)`.
 
 Builds a point VAO and returns `(vao, instance_vbo)`.
 
+### `create_line_vertices(points, rgba)`
+
+Converts a sequence of pygame `(x, y)` pairs and one 0-255 RGBA color into an
+interleaved `float32` array with the layout `[clip_x, clip_y, r, g, b, a]`.
+At least two points and exactly four color components are required.
+
+### `build_line_obj(ctx, program, points, rgba)`
+
+Creates a dynamic, non-instanced line VBO and its VAO. Returns `(vao, vbo)`.
+The shader must expose `in_position` as `vec2` and `in_color` as `vec4`.
+
+### `update_line_obj(vbo, points, rgba)`
+
+Converts and uploads replacement line vertices, then returns the vertex count.
+The replacement data cannot be larger than the VBO created by
+`build_line_obj()`.
+
+### `build_polygon_obj(ctx, program, points, rgba)`
+
+Creates a polygon VAO and dynamic VBO from at least two pygame-coordinate points
+and a 0-255 RGBA color. Concave, self-intersecting, duplicate, and collinear
+points are allowed for outline rendering. Returns `(vao, vbo)`.
+
+### `update_polygon_obj(vbo, points, rgba)`
+
+Replaces polygon vertices and returns the new vertex count. Arbitrary outline
+geometry is allowed, but the replacement cannot exceed the VBO's original
+capacity.
+
+### `is_convex_polygon(points)`
+
+Returns whether the points form a simple, non-degenerate convex polygon. It
+returns `False` for fewer than three points, duplicate points,
+self-intersections, collinear polygons, and inconsistent turn directions.
+
+### `render_polygon(vao, points, fill=False)`
+
+Draws a closed `LINE_LOOP` outline when `fill=False`. With `fill=True`, it draws
+a `TRIANGLE_FAN` only when `is_convex_polygon(points)` is true; otherwise it
+falls back to an outline. Returns `True` when filled and `False` when outlined.
+At least two points are required. Fill validation is cached by relative point
+positions, so uniform translation and RGBA changes do not repeat validation.
+
 ### `build_tex_objs(ctx, program, instances)`
 
 Builds textured-quad geometry and returns `(vao, instance_vbo)`.
@@ -716,6 +909,16 @@ Returns typed obstacle-index tuples for all collisions with `player`.
 
 Returns the indices of all objects containing the supplied mouse position.
 
+### `check_convex_polygon_collision(poly1, poly2)`
+
+Converts two convex pygame-coordinate polygons to clip space and returns whether
+they overlap. Each polygon requires at least three perimeter-ordered points.
+
+### `check_convex_polygon_rect_collision(polygon, rect)`
+
+Returns whether a convex pygame-coordinate polygon overlaps a converted
+rectangle or texture record.
+
 ## Common failure cases
 
 - **Nothing is visible:** Confirm that the correct VAO is rendered with
@@ -725,6 +928,18 @@ Returns the indices of all objects containing the supplied mouse position.
   size matches `WIDTH` and `HEIGHT`.
 - **Points are the wrong size or invisible:** Enable
   `moderngl.PROGRAM_POINT_SIZE` and render with `vertices=1`.
+- **A polygon is missing its closing edge:** Render it with `LINE_LOOP`, or
+  repeat the first point at the end when using `LINE_STRIP`.
+- **A polygon requested with `fill=True` appears only as an outline:** Its points
+  are concave, degenerate, self-intersecting, duplicated, or otherwise invalid
+  for convex triangle-fan filling. This fallback is intentional.
+- **Convex polygon collision raises `ValueError`:** Collision remains
+  convex-only. Ensure the polygon is simple, non-degenerate, and follows its
+  perimeter in clockwise or counterclockwise order.
+- **Requested thick lines remain one pixel wide:** The OpenGL driver does not
+  support wide native lines. Use rotated filled rectangles for reliable width.
+- **Updating a line raises a buffer-size error:** Rebuild it with
+  `build_line_obj()` using the larger point list.
 - **An updated object jumps or changes color unexpectedly:** A previously
   converted field was converted again. Disable its `update_instances()` flag.
 - **An update does not appear:** Writing to the Python list or NumPy array alone

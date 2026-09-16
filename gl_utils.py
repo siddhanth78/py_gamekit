@@ -1,4 +1,6 @@
 import math
+from functools import lru_cache
+
 import moderngl
 import numpy as np
 import pygame
@@ -70,6 +72,136 @@ def build_point_objs(ctx, program, instances):
             [(ivbo, '2f 4f 1f /i', 'in_offset', 'in_color', 'in_scale')],
             )
     return vao, ivbo
+
+# Convert pygame points and one RGBA color into interleaved line vertices
+def create_line_vertices(points, rgba):
+    if len(points) < 2:
+        raise ValueError("A line requires at least two points")
+    if len(rgba) != 4:
+        raise ValueError("Line color must contain r, g, b, and a")
+
+    color = np.asarray(rgba, dtype='f4') / 255.0
+    vertices = np.empty((len(points), 6), dtype='f4')
+
+    for i, (x, y) in enumerate(points):
+        vertices[i][0], vertices[i][1] = convert_to_clip_space(x, y)
+        vertices[i][2:6] = color
+
+    return vertices
+
+# Build a non-instanced line, line strip, or line loop
+def build_line_obj(ctx, program, points, rgba):
+    vertices = create_line_vertices(points, rgba)
+    vbo = ctx.buffer(vertices.tobytes(), dynamic=True)
+    vao = ctx.vertex_array(
+            program,
+            [(vbo, '2f 4f', 'in_position', 'in_color')],
+            )
+    return vao, vbo
+
+# Replace line vertices without rebuilding the VAO
+def update_line_obj(vbo, points, rgba):
+    vertices = create_line_vertices(points, rgba)
+    if vertices.nbytes > vbo.size:
+        raise ValueError(
+            "Updated line has more vertices than its buffer; rebuild it with "
+            "build_line_obj()"
+        )
+    vbo.write(vertices.tobytes(), offset=0)
+    return len(vertices)
+
+def is_convex_polygon(points):
+    if len(points) < 3 or len(set(map(tuple, points))) != len(points):
+        return False
+
+    epsilon = 1e-9
+
+    def orientation(a, b, c):
+        return ((b[0] - a[0]) * (c[1] - a[1])
+                - (b[1] - a[1]) * (c[0] - a[0]))
+
+    def on_segment(a, b, p):
+        return (min(a[0], b[0]) - epsilon <= p[0] <= max(a[0], b[0]) + epsilon
+                and min(a[1], b[1]) - epsilon <= p[1] <= max(a[1], b[1]) + epsilon)
+
+    def segments_intersect(a, b, c, d):
+        o1 = orientation(a, b, c)
+        o2 = orientation(a, b, d)
+        o3 = orientation(c, d, a)
+        o4 = orientation(c, d, b)
+
+        if ((o1 > epsilon and o2 < -epsilon) or (o1 < -epsilon and o2 > epsilon)) and ((o3 > epsilon and o4 < -epsilon) or (o3 < -epsilon and o4 > epsilon)):
+            return True
+        if abs(o1) <= epsilon and on_segment(a, b, c):
+            return True
+        if abs(o2) <= epsilon and on_segment(a, b, d):
+            return True
+        if abs(o3) <= epsilon and on_segment(c, d, a):
+            return True
+        if abs(o4) <= epsilon and on_segment(c, d, b):
+            return True
+        return False
+
+    # Reject self-intersections between non-adjacent edges.
+    count = len(points)
+    for i in range(count):
+        a, b = points[i], points[(i + 1) % count]
+        for j in range(i + 1, count):
+            if j == i or j == (i + 1) % count:
+                continue
+            if i == 0 and j == count - 1:
+                continue
+            c, d = points[j], points[(j + 1) % count]
+            if segments_intersect(a, b, c, d):
+                return False
+
+    # Every non-collinear turn must have the same direction.
+    turn_sign = 0
+    for i in range(count):
+        cross = orientation(
+            points[i],
+            points[(i + 1) % count],
+            points[(i + 2) % count],
+        )
+        if abs(cross) <= epsilon:
+            continue
+        current_sign = 1 if cross > 0 else -1
+        if turn_sign == 0:
+            turn_sign = current_sign
+        elif current_sign != turn_sign:
+            return False
+
+    return turn_sign != 0
+
+def _relative_polygon_signature(points):
+    if not points:
+        return ()
+    origin_x, origin_y = points[0]
+    return tuple((x - origin_x, y - origin_y) for x, y in points)
+
+@lru_cache(maxsize=256)
+def _polygon_fill_is_valid(relative_points):
+    return is_convex_polygon(relative_points)
+
+# Build polygon vertices for outline or conditionally filled rendering
+def build_polygon_obj(ctx, program, points, rgba):
+    return build_line_obj(ctx, program, points, rgba)
+
+# Replace polygon vertices without rebuilding the VAO
+def update_polygon_obj(vbo, points, rgba):
+    return update_line_obj(vbo, points, rgba)
+
+# Fill valid convex polygons; otherwise fall back to an outline
+def render_polygon(vao, points, fill=False):
+    if len(points) < 2:
+        raise ValueError("A polygon outline requires at least two points")
+    filled = False
+    if fill:
+        relative_points = _relative_polygon_signature(points)
+        filled = _polygon_fill_is_valid(relative_points)
+    mode = moderngl.TRIANGLE_FAN if filled else moderngl.LINE_LOOP
+    vao.render(mode, vertices=len(points))
+    return filled
 
 # Build tex instances
 def build_tex_objs(ctx, program, instances):
@@ -163,6 +295,28 @@ def sat_collision(poly1, poly2):
             if not _overlap_on_axis(poly1, poly2, axis):
                 return False
     return True
+
+
+# Convex polygon vs convex polygon; points use pygame pixel coordinates
+def check_convex_polygon_collision(poly1, poly2):
+    if not is_convex_polygon(poly1) or not is_convex_polygon(poly2):
+        raise ValueError("Polygons must be simple, non-degenerate, and convex")
+
+    clip_poly1 = [convert_to_clip_space(x, y) for x, y in poly1]
+    clip_poly2 = [convert_to_clip_space(x, y) for x, y in poly2]
+    return sat_collision(clip_poly1, clip_poly2)
+
+
+# Convex pygame-coordinate polygon vs converted rect/texture record
+def check_convex_polygon_rect_collision(polygon, rect):
+    if not is_convex_polygon(polygon):
+        raise ValueError("Polygon must be simple, non-degenerate, and convex")
+
+    clip_polygon = [convert_to_clip_space(x, y) for x, y in polygon]
+    rect_corners = get_rect_corners(
+        rect[0], rect[1], rect[7], rect[8], rect[9]
+    )
+    return sat_collision(clip_polygon, rect_corners)
 
 
 # Check 2d collisions
