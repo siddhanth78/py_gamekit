@@ -280,6 +280,39 @@ repeat the first point because `LINE_LOOP` closes the last edge automatically.
 If the same shape is rendered with `LINE_STRIP`, repeat the first point as a
 seventh entry to close it.
 
+### Convex and concave polygons
+
+Only **convex** polygons can be filled by `gl_utils`. A convex polygon has no
+inward dents: every interior angle is at most 180 degrees, and a line drawn
+between any two points inside the polygon remains inside it.
+
+```python
+convex = [
+    (100, 100),
+    (220, 80),
+    (280, 180),
+    (200, 260),
+    (80, 220),
+]
+```
+
+A **concave** polygon has at least one inward-facing corner, or dent. At that
+corner the interior angle is greater than 180 degrees.
+
+```python
+concave = [
+    (100, 100),
+    (280, 100),
+    (190, 180),  # Inward-facing corner
+    (280, 260),
+    (100, 260),
+]
+```
+
+Both shapes can be drawn as outlines. If `fill=True` is requested for the
+concave example, `render_polygon()` detects that it is not convex and silently
+draws its outline instead.
+
 Lines and polygons do not use the instanced object arrays. Convex polygon
 collision can use the same point list, but collision is independent of the
 rendered line width.
@@ -455,7 +488,7 @@ render_polygon(polygon_vao, polygon, fill=True)
 `render_polygon()` uses `LINE_LOOP` for an outline. When `fill=True`, it first
 checks whether the points describe a simple, non-degenerate convex polygon. A
 valid polygon uses `TRIANGLE_FAN`; otherwise the function automatically falls
-back to `LINE_LOOP`. Its Boolean return value reports whether filling occurred.
+back to `LINE_LOOP`. Its Boolean return value indicates whether filling occurred.
 The fill result is cached using every point relative to the first point. Moving
 the whole polygon or changing RGBA reuses the cached result; changing its
 internal shape triggers validation. The cache retains at most 256 shapes.
