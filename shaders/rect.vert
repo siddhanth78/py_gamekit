@@ -2,7 +2,7 @@
 
 in vec2 quad_position;
 in vec2 in_offset;
-in vec3 in_color;
+in vec4 in_color;
 in vec2 in_scale;
 in float in_rotation;
 in float in_thickness;
@@ -10,7 +10,7 @@ in vec2 quad_uv;
 
 uniform float u_aspect;
 
-out vec3 v_color;
+out vec4 v_color;
 out vec2 v_uv;
 out float v_thickness;
 

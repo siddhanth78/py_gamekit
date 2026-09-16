@@ -1,6 +1,6 @@
 #version 330
 
-in vec3 v_color;
+in vec4 v_color;
 in vec2 v_uv;
 in vec2 v_tile;
 in float v_thickness;
@@ -15,5 +15,5 @@ void main(){
     vec2 atlas_uv = (v_tile + v_uv) * tile_size;
     vec4 tex_color = texture(u_texture, atlas_uv);
     if (tex_color.a < 0.01) discard;
-    f_color = tex_color * vec4(v_color, 1.0);
+    f_color = tex_color * v_color;
 }

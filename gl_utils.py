@@ -6,20 +6,20 @@ import pygame
 WIDTH, HEIGHT = 800, 600
 aspect = WIDTH/HEIGHT
 
-# 4 bytes x 9 floats (rects)
-rstride = 4*9
+# 4 bytes x 10 floats (rects)
+rstride = 4*10
 
-# 4 bytes x 6 floats (points)
-pstride = 4*6
+# 4 bytes x 7 floats (points)
+pstride = 4*7
 
-# 4 bytes x 11 floats (tex)
-tstride = 4*11
+# 4 bytes x 12 floats (tex)
+tstride = 4*12
 
 # Empty instances
 def get_new_instances(rn, pn, tn):
-    rect_instances = np.zeros((rn, 9), dtype='f4')
-    point_instances = np.zeros((pn, 6), dtype='f4')
-    tex_instances = np.zeros((tn, 11), dtype='f4')
+    rect_instances = np.zeros((rn, 10), dtype='f4')
+    point_instances = np.zeros((pn, 7), dtype='f4')
+    tex_instances = np.zeros((tn, 12), dtype='f4')
 
     return rect_instances, point_instances, tex_instances
 
@@ -56,7 +56,7 @@ def build_rect_objs(ctx, program, instances):
     vao = ctx.vertex_array(
             program,
             [(quad_vbo, '2f 2f', 'quad_position', 'quad_uv'),
-             (ivbo, '2f 3f 1f 2f 1f /i', 'in_offset', 'in_color', 'in_thickness', 'in_scale', 'in_rotation')],
+             (ivbo, '2f 4f 1f 2f 1f /i', 'in_offset', 'in_color', 'in_thickness', 'in_scale', 'in_rotation')],
             index_buffer=quad_ibo
             )
     return vao, ivbo
@@ -67,7 +67,7 @@ def build_point_objs(ctx, program, instances):
     
     vao = ctx.vertex_array(
             program,
-            [(ivbo, '2f 3f 1f /i', 'in_offset', 'in_color', 'in_scale')],
+            [(ivbo, '2f 4f 1f /i', 'in_offset', 'in_color', 'in_scale')],
             )
     return vao, ivbo
 
@@ -92,7 +92,7 @@ def build_tex_objs(ctx, program, instances):
     vao = ctx.vertex_array(
             program,
             [(quad_vbo, '2f 2f', 'quad_position', 'quad_uv'),
-             (ivbo, '2f 3f 1f 2f 1f 2f /i', 'in_offset', 'in_color', 'in_thickness', 'in_scale', 'in_rotation', 'in_tile')],
+             (ivbo, '2f 4f 1f 2f 1f 2f /i', 'in_offset', 'in_color', 'in_thickness', 'in_scale', 'in_rotation', 'in_tile')],
             index_buffer=quad_ibo
             )
     return vao, ivbo
@@ -104,13 +104,13 @@ def convert_to_clip_space(x,y):
     return cx, cy
 
 # Update instance via index
-def update_instances(idx, data, instances, convert_xy=True, convert_rgb=True, convert_rot=True):
+def update_instances(idx, data, instances, convert_xy=True, convert_rgba=True, convert_rot=True):
     if convert_xy == True:
         data[idx][0], data[idx][1] = convert_to_clip_space(data[idx][0], data[idx][1])
-    if convert_rgb == True:
-        data[idx][2], data[idx][3], data[idx][4] = data[idx][2]/255.0, data[idx][3]/255.0, data[idx][4]/255.0
-    if convert_rot == True and len(data[idx]) > 6:
-        data[idx][8] = math.radians(data[idx][8])
+    if convert_rgba == True:
+        data[idx][2], data[idx][3], data[idx][4], data[idx][5] = data[idx][2]/255.0, data[idx][3]/255.0, data[idx][4]/255.0, data[idx][5]/255.0
+    if convert_rot == True and len(data[idx]) > 9:
+        data[idx][9] = math.radians(data[idx][9])
     instances[idx] = data[idx]
     return instances
 
@@ -170,17 +170,17 @@ def check_collision(player, obstacles, type_):
     all_collided = []
 
     if type_ in ['rect','tex']:
-        player_corners = get_rect_corners(player[0], player[1], player[6], player[7], player[8])
+        player_corners = get_rect_corners(player[0], player[1], player[7], player[8], player[9])
         for o in range(len(obstacles)):
             obs_corners = get_rect_corners(obstacles[o][0], obstacles[o][1],
-                                            obstacles[o][6], obstacles[o][7], obstacles[o][8])
+                                            obstacles[o][7], obstacles[o][8], obstacles[o][9])
             if sat_collision(player_corners, obs_corners):
                 all_collided.append(('rt', o))
 
     elif type_ == 'point':
         for o in range(len(obstacles)):
             px, py = obstacles[o][0], obstacles[o][1]
-            if point_in_rotated_rect(px, py, player[0], player[1], player[6], player[7], player[8]):
+            if point_in_rotated_rect(px, py, player[0], player[1], player[7], player[8], player[9]):
                 all_collided.append(('p',o))
 
     return all_collided
@@ -191,31 +191,31 @@ def check_mouse_collisions(mx, my, data, type_):
     mx, my = convert_to_clip_space(mx, my)
     for i in range(len(data)):
         if type_ == 'point':
-            half_p = 10*data[i][5]
+            half_p = 10*data[i][6]
             half_p_x = half_p * (2/WIDTH)
             half_p_y = half_p * (2/HEIGHT)
             if (data[i][0]-half_p_x <= mx <= data[i][0]+half_p_x) and (data[i][1]-half_p_y <= my <= data[i][1]+half_p_y):
                 all_collided.append(i)
         elif type_ in ['rect','tex']:
-            if point_in_rotated_rect(mx, my, data[i][0], data[i][1], data[i][6], data[i][7], data[i][8]):
+            if point_in_rotated_rect(mx, my, data[i][0], data[i][1], data[i][7], data[i][8], data[i][9]):
                 all_collided.append(i)
     return all_collided
 
 # Convert data to gl-expected format
 # degrees -> rad (rects only)
 # coords -> gl clip space coords
-# rgb -> 0-1 norm
+# rgba -> 0-1 norm
 def to_gl(data, instances, type_):
     if type_ in ['rect','tex']:
         for i in range(len(data)):
-            data[i][8] = math.radians(data[i][8])
+            data[i][9] = math.radians(data[i][9])
             data[i][0], data[i][1] = convert_to_clip_space(data[i][0], data[i][1])
-            data[i][2], data[i][3], data[i][4] = data[i][2]/255.0, data[i][3]/255.0, data[i][4]/255.0
+            data[i][2], data[i][3], data[i][4], data[i][5] = data[i][2]/255.0, data[i][3]/255.0, data[i][4]/255.0, data[i][5]/255.0
             instances[i] = data[i]
     elif type_ == 'point':
         for j in range(len(data)):
             data[j][0], data[j][1] = convert_to_clip_space(data[j][0], data[j][1])
-            data[j][2], data[j][3], data[j][4] = data[j][2]/255.0, data[j][3]/255.0, data[j][4]/255.0
+            data[j][2], data[j][3], data[j][4], data[j][5] = data[j][2]/255.0, data[j][3]/255.0, data[j][4]/255.0, data[j][5]/255.0
             instances[j] = data[j]
 
     return data, instances
@@ -224,30 +224,30 @@ def modify_xy(idx, data, x, y):
     data[idx][0], data[idx][1] = x,y
     return data
 
-def modify_rgb(idx, data, r,g,b):
-    data[idx][2],data[idx][3],data[idx][4] = r,g,b
+def modify_rgba(idx, data, r,g,b,a):
+    data[idx][2],data[idx][3],data[idx][4],data[idx][5] = r,g,b,a
     return data
 
 def modify_scale(idx, data, sx, sy, type_):
     if type_ in ['rect', 'tex']:
-        data[idx][6],data[idx][7] = sx,sy
+        data[idx][7],data[idx][8] = sx,sy
     elif type_ == 'point':
-        data[idx][5] = sx
+        data[idx][6] = sx
     return data
 
 def modify_rot(idx, data, angle, type_='rect'):
     if type_ in ['rect', 'tex']:
-        data[idx][8] = angle
+        data[idx][9] = angle
     return data
 
 def modify_thickness(idx, data, factor, type_='rect'):
     if type_ == 'rect':
-        data[idx][5] = factor
+        data[idx][6] = factor
     return data
 
 def modify_texture(idx, data, tilex, tiley, type_='tex'):
     if type_ == 'tex':
-        data[idx][9],data[idx][10] = tilex,tiley
+        data[idx][10],data[idx][11] = tilex,tiley
     return data
 
 def load_texture(ctx, path):

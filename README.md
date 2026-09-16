@@ -73,18 +73,20 @@ screen = pygame.display.set_mode(
 
 ctx = moderngl.create_context()
 ctx.enable(moderngl.PROGRAM_POINT_SIZE)
+ctx.enable(moderngl.BLEND)
+ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
 
 # Compile the supplied shaders.
 rect_program = load_program(ctx, "shaders/rect.vert", "shaders/rect.frag")
 point_program = load_program(ctx, "shaders/point.vert", "shaders/point.frag")
 rect_program["u_aspect"] = aspect
 
-# Define objects in pygame units: pixel positions, 0-255 RGB, and degrees.
+# Define objects in pygame units: pixel positions, 0-255 RGBA, and degrees.
 rects = [
-    [400, 300, 255, 80, 80, 0.08, 2.0, 1.0, 20],
+    [400, 300, 255, 80, 80, 192, 0.08, 2.0, 1.0, 20],
 ]
 points = [
-    [400, 300, 255, 255, 255, 1.0],
+    [400, 300, 255, 255, 255, 255, 1.0],
 ]
 
 # Capacities may be larger than the current object counts.
@@ -129,13 +131,15 @@ Use the module in this order:
 2. Create a window whose size matches `WIDTH` and `HEIGHT`.
 3. Create the ModernGL context.
 4. Load the required shader programs with `load_program()`.
-5. Set the `u_aspect` uniform on rectangle and texture programs.
-6. Create Python object lists in pygame units.
-7. Allocate fixed-capacity arrays with `get_new_instances()`.
-8. Call `to_gl()` once for each object list.
-9. Create VAOs and VBOs with the matching `build_*_objs()` function.
-10. Render only `len(object_list)` instances.
-11. For later changes, update the Python record, its NumPy slot, and its GPU
+5. Enable blending and configure the blend function if alpha should produce
+   translucency.
+6. Set the `u_aspect` uniform on rectangle and texture programs.
+7. Create Python object lists in pygame units.
+8. Allocate fixed-capacity arrays with `get_new_instances()`.
+9. Call `to_gl()` once for each object list.
+10. Create VAOs and VBOs with the matching `build_*_objs()` function.
+11. Render only `len(object_list)` instances.
+12. For later changes, update the Python record, its NumPy slot, and its GPU
     buffer slot in that order.
 
 ## Coordinate and value conventions
@@ -145,7 +149,7 @@ Before `to_gl()` is called, records use these public-facing units:
 | Value | Input convention |
 | --- | --- |
 | Position | pygame pixels; origin at the top left; positive Y points down |
-| RGB color | integers or floats in the range 0-255 |
+| RGBA color | integers or floats in the range 0-255 |
 | Rotation | degrees |
 | Scale | multiplier; no conversion is performed |
 | Thickness | normalized quad UV value; no conversion is performed |
@@ -156,7 +160,7 @@ Before `to_gl()` is called, records use these public-facing units:
 | Value | Stored convention |
 | --- | --- |
 | Position | OpenGL clip space |
-| RGB color | normalized floats in the range 0-1 |
+| RGBA color | normalized floats in the range 0-1 |
 | Rotation | radians |
 | Scale, thickness, tile | unchanged |
 
@@ -185,22 +189,22 @@ module API.
 ### Rectangle
 
 ```text
-[x, y, r, g, b, thickness, scale_x, scale_y, rotation]
+[x, y, r, g, b, a, thickness, scale_x, scale_y, rotation]
 ```
 
 Example before conversion:
 
 ```python
-rect = [200, 150, 255, 0, 0, 0.08, 1.0, 0.5, 45]
+rect = [200, 150, 255, 0, 0, 128, 0.08, 1.0, 0.5, 45]
 ```
 
 | Index | Field | Meaning |
 | ---: | --- | --- |
 | 0-1 | `x`, `y` | Center position |
-| 2-4 | `r`, `g`, `b` | Color |
-| 5 | `thickness` | Border thickness |
-| 6-7 | `scale_x`, `scale_y` | Quad scale |
-| 8 | `rotation` | Rotation about the center |
+| 2-5 | `r`, `g`, `b`, `a` | Color and alpha |
+| 6 | `thickness` | Border thickness |
+| 7-8 | `scale_x`, `scale_y` | Quad scale |
+| 9 | `rotation` | Rotation about the center |
 
 `thickness=0` draws a filled rectangle. Values between `0` and `0.5` draw a
 border, with larger values producing a thicker border. Values around `0.5` or
@@ -212,13 +216,13 @@ the configured window height. Scale is applied independently to each axis.
 ### Point
 
 ```text
-[x, y, r, g, b, scale]
+[x, y, r, g, b, a, scale]
 ```
 
 Example before conversion:
 
 ```python
-point = [100, 100, 255, 255, 255, 1.0]
+point = [100, 100, 255, 255, 255, 255, 1.0]
 ```
 
 Point size is `scale * 20` pixels. Call
@@ -227,18 +231,19 @@ Point size is `scale * 20` pixels. Call
 ### Textured rectangle
 
 ```text
-[x, y, r, g, b, unused, scale_x, scale_y, rotation, tile_x, tile_y]
+[x, y, r, g, b, a, unused, scale_x, scale_y, rotation, tile_x, tile_y]
 ```
 
 Example before conversion:
 
 ```python
-sprite = [320, 240, 255, 255, 255, 0, 1.0, 1.0, 0, 2, 1]
+sprite = [320, 240, 255, 255, 255, 200, 0, 1.0, 1.0, 0, 2, 1]
 ```
 
-The sixth field exists to keep the textured layout compatible with the quad
+The seventh field exists to keep the textured layout compatible with the quad
 layout but is not used by the supplied texture fragment shader. RGB values tint
-the sampled texture. Use white `(255, 255, 255)` to preserve its original color.
+the sampled texture, and the instance alpha multiplies the texture alpha. Use
+white `(255, 255, 255)` to preserve the texture's original RGB color.
 
 `tile_x` and `tile_y` select a cell from a uniform texture atlas.
 
@@ -256,9 +261,9 @@ The returned arrays use `numpy.float32` and have these shapes:
 
 | Type | Shape | Stride constant | Bytes per record |
 | --- | --- | --- | ---: |
-| Rectangle | `(rect_capacity, 9)` | `rstride` | 36 |
-| Point | `(point_capacity, 6)` | `pstride` | 24 |
-| Texture | `(texture_capacity, 11)` | `tstride` | 44 |
+| Rectangle | `(rect_capacity, 10)` | `rstride` | 40 |
+| Point | `(point_capacity, 7)` | `pstride` | 28 |
+| Texture | `(texture_capacity, 12)` | `tstride` | 48 |
 
 Capacity is fixed. `gl_utils` does not grow these arrays automatically. Choose
 a capacity greater than or equal to the maximum expected object count.
@@ -306,7 +311,7 @@ Rectangle vertex shader inputs:
 in vec2 quad_position;
 in vec2 quad_uv;
 in vec2 in_offset;
-in vec3 in_color;
+in vec4 in_color;
 in float in_thickness;
 in vec2 in_scale;
 in float in_rotation;
@@ -316,7 +321,7 @@ Point vertex shader inputs:
 
 ```glsl
 in vec2 in_offset;
-in vec3 in_color;
+in vec4 in_color;
 in float in_scale;
 ```
 
@@ -326,7 +331,7 @@ Texture vertex shader inputs:
 in vec2 quad_position;
 in vec2 quad_uv;
 in vec2 in_offset;
-in vec3 in_color;
+in vec4 in_color;
 in float in_thickness;
 in vec2 in_scale;
 in float in_rotation;
@@ -358,6 +363,37 @@ tex_vao.render(moderngl.TRIANGLES, instances=len(sprites))
 
 Rendering the capacity would also draw the unused zero-filled records.
 
+### Alpha blending
+
+Every object record contains alpha in the 0-255 range before conversion. Enable
+standard source-over blending once after creating the context:
+
+```python
+ctx.enable(moderngl.BLEND)
+ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+```
+
+An alpha of `255` is fully opaque, `0` is fully transparent, and values between
+them are translucent. Objects are blended in draw order, so draw background
+objects before foreground objects. The module does not sort transparent objects.
+
+### Interactive alpha test
+
+`hover_alpha_test.py` is a standalone, asset-free RGBA test. It displays three
+rectangles at full opacity and changes a rectangle to approximately 50% opacity
+while the mouse is over it. Moving the mouse away restores full opacity.
+
+Run it from the project directory so the relative shader paths resolve:
+
+```bash
+python3 hover_alpha_test.py
+```
+
+Press `Esc` or close the window to exit. The test enables blending with
+`SRC_ALPHA` and `ONE_MINUS_SRC_ALPHA`, uses `check_mouse_collisions()` for hover
+detection, and uploads a new alpha value only when a rectangle's hover state
+changes.
+
 ## Loading textures and atlases
 
 `load_texture(ctx, path)` loads an image as RGBA, flips it vertically for
@@ -387,7 +423,7 @@ tex_program["u_texture"] = 0
 tex_program["u_atlas_grid"] = (4.0, 2.0)
 
 sprites = [
-    [320, 240, 255, 255, 255, 0, 1.0, 1.0, 0, 2, 1],
+    [320, 240, 255, 255, 255, 255, 0, 1.0, 1.0, 0, 2, 1],
 ]
 
 rect_instances, point_instances, tex_instances = get_new_instances(0, 0, 100)
@@ -420,28 +456,28 @@ tex_instances = update_instances(
     sprites,
     tex_instances,
     convert_xy=True,
-    convert_rgb=False,
+    convert_rgba=False,
     convert_rot=False,
 )
 tex_vbo.write(tex_instances[index].tobytes(), offset=index * tstride)
 ```
 
-### Change a color
+### Change a color or alpha
 
-`modify_rgb()` accepts RGB values in the 0-255 range. Convert only the changed
-color:
+`modify_rgba()` accepts RGBA values in the 0-255 range. Convert only the changed
+color and alpha:
 
 ```python
-from gl_utils import modify_rgb, rstride, update_instances
+from gl_utils import modify_rgba, rstride, update_instances
 
 index = 0
-rects = modify_rgb(index, rects, 255, 0, 255)
+rects = modify_rgba(index, rects, 255, 0, 255, 128)
 rect_instances = update_instances(
     index,
     rects,
     rect_instances,
     convert_xy=False,
-    convert_rgb=True,
+    convert_rgba=True,
     convert_rot=False,
 )
 rect_vbo.write(rect_instances[index].tobytes(), offset=index * rstride)
@@ -458,7 +494,7 @@ rect_instances = update_instances(
     rects,
     rect_instances,
     convert_xy=False,
-    convert_rgb=False,
+    convert_rgba=False,
     convert_rot=True,
 )
 rect_vbo.write(rect_instances[index].tobytes(), offset=index * rstride)
@@ -476,15 +512,15 @@ tex_instances = update_instances(
     sprites,
     tex_instances,
     convert_xy=False,
-    convert_rgb=False,
+    convert_rgba=False,
     convert_rot=False,
 )
 tex_vbo.write(tex_instances[index].tobytes(), offset=index * tstride)
 ```
 
 The conversion flags are important because the Python list remains in converted
-form after `to_gl()`. Re-converting an unchanged position, color, or rotation
-will corrupt that value.
+form after `to_gl()`. Re-converting an unchanged position, color, alpha, or
+rotation will corrupt that value.
 
 ## Adding an object after initialization
 
@@ -494,7 +530,7 @@ conversions enabled, and upload that slot:
 ```python
 from gl_utils import pstride, update_instances
 
-points.append([250, 200, 0, 255, 0, 1.5])
+points.append([250, 200, 0, 255, 0, 160, 1.5])
 index = len(points) - 1
 
 point_instances = update_instances(
@@ -502,7 +538,7 @@ point_instances = update_instances(
     points,
     point_instances,
     convert_xy=True,
-    convert_rgb=True,
+    convert_rgba=True,
     convert_rot=False,  # Point records have no rotation field.
 )
 point_vbo.write(point_instances[index].tobytes(), offset=index * pstride)
@@ -541,28 +577,28 @@ update the NumPy array or GPU buffer.
 Replaces fields 0 and 1. Supply pixel coordinates and enable `convert_xy` in the
 following `update_instances()` call.
 
-### `modify_rgb(index, data, r, g, b)`
+### `modify_rgba(index, data, r, g, b, a)`
 
-Replaces fields 2 through 4. Supply 0-255 color values and enable `convert_rgb`
-in the following update.
+Replaces fields 2 through 5. Supply 0-255 color and alpha values and enable
+`convert_rgba` in the following update.
 
 ### `modify_scale(index, data, sx, sy, type_)`
 
-For `"rect"` and `"tex"`, replaces fields 6 and 7. For `"point"`, replaces
-field 5 with `sx`; `sy` is ignored.
+For `"rect"` and `"tex"`, replaces fields 7 and 8. For `"point"`, replaces
+field 6 with `sx`; `sy` is ignored.
 
 ### `modify_rot(index, data, angle, type_="rect")`
 
-For `"rect"` and `"tex"`, replaces field 8. Supply degrees and enable
+For `"rect"` and `"tex"`, replaces field 9. Supply degrees and enable
 `convert_rot` in the following update.
 
 ### `modify_thickness(index, data, factor, type_="rect")`
 
-For `"rect"`, replaces field 5. Other types are unchanged.
+For `"rect"`, replaces field 6. Other types are unchanged.
 
 ### `modify_texture(index, data, tilex, tiley, type_="tex")`
 
-For `"tex"`, replaces fields 9 and 10. Other types are unchanged.
+For `"tex"`, replaces fields 10 and 11. Other types are unchanged.
 
 ## Collision detection
 
@@ -663,7 +699,7 @@ Converts pygame pixels to clip space using `WIDTH` and `HEIGHT`. Returns
 Converts every populated record, copies it into `instances`, and returns
 `(data, instances)`. This function mutates `data`.
 
-### `update_instances(idx, data, instances, convert_xy=True, convert_rgb=True, convert_rot=True)`
+### `update_instances(idx, data, instances, convert_xy=True, convert_rgba=True, convert_rot=True)`
 
 Conditionally converts one record, copies it into `instances[idx]`, and returns
 `instances`. This function does not write to the GPU.
