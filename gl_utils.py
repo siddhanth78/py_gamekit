@@ -8,6 +8,23 @@ import pygame
 WIDTH, HEIGHT = 800, 600
 aspect = WIDTH/HEIGHT
 
+def set_viewport_size(width, height):
+    global WIDTH, HEIGHT, aspect
+
+    width = int(width)
+    height = int(height)
+    if width <= 0 or height <= 0:
+        raise ValueError("Window width and height must be positive")
+
+    WIDTH = width
+    HEIGHT = height
+    aspect = WIDTH / HEIGHT
+    return WIDTH, HEIGHT
+
+def set_aspect(width, height):
+    set_viewport_size(width, height)
+    return aspect
+
 # 4 bytes x 10 floats (rects)
 rstride = 4*10
 
@@ -40,10 +57,10 @@ def load_program(ctx, vert_path, frag_path):
 # Build rect instances
 def build_rect_objs(ctx, program, instances):
     vertices = np.array([
-        -0.1,-0.1,   0.0,0.0,
-        0.1,-0.1,   1.0,0.0,
-        0.1, 0.1,   1.0,1.0,
-        -0.1, 0.1,   0.0,1.0
+        -0.5,-0.5,   0.0,0.0,
+        0.5,-0.5,   1.0,0.0,
+        0.5, 0.5,   1.0,1.0,
+        -0.5, 0.5,   0.0,1.0
         ], dtype="f4")
 
     indices = np.array([
@@ -58,7 +75,7 @@ def build_rect_objs(ctx, program, instances):
     vao = ctx.vertex_array(
             program,
             [(quad_vbo, '2f 2f', 'quad_position', 'quad_uv'),
-             (ivbo, '2f 4f 1f 2f 1f /i', 'in_offset', 'in_color', 'in_thickness', 'in_scale', 'in_rotation')],
+             (ivbo, '2f 4f 1f 2f 1f /i', 'in_offset', 'in_color', 'in_thickness', 'in_size', 'in_rotation')],
             index_buffer=quad_ibo
             )
     return vao, ivbo
@@ -69,7 +86,7 @@ def build_point_objs(ctx, program, instances):
     
     vao = ctx.vertex_array(
             program,
-            [(ivbo, '2f 4f 1f /i', 'in_offset', 'in_color', 'in_scale')],
+            [(ivbo, '2f 4f 1f /i', 'in_offset', 'in_color', 'in_size')],
             )
     return vao, ivbo
 
@@ -84,7 +101,7 @@ def create_line_vertices(points, rgba):
     vertices = np.empty((len(points), 6), dtype='f4')
 
     for i, (x, y) in enumerate(points):
-        vertices[i][0], vertices[i][1] = convert_to_clip_space(x, y)
+        vertices[i][0], vertices[i][1] = x, y
         vertices[i][2:6] = color
 
     return vertices
@@ -206,10 +223,10 @@ def render_polygon(vao, points, fill=False):
 # Build tex instances
 def build_tex_objs(ctx, program, instances):
     vertices = np.array([
-        -0.1,-0.1,   0.0,0.0,
-        0.1,-0.1,   1.0,0.0,
-        0.1, 0.1,   1.0,1.0,
-        -0.1, 0.1,   0.0,1.0
+        -0.5,-0.5,   0.0,0.0,
+        0.5,-0.5,   1.0,0.0,
+        0.5, 0.5,   1.0,1.0,
+        -0.5, 0.5,   0.0,1.0
         ], dtype="f4")
 
     indices = np.array([
@@ -224,7 +241,7 @@ def build_tex_objs(ctx, program, instances):
     vao = ctx.vertex_array(
             program,
             [(quad_vbo, '2f 2f', 'quad_position', 'quad_uv'),
-             (ivbo, '2f 4f 1f 2f 1f 2f /i', 'in_offset', 'in_color', 'in_thickness', 'in_scale', 'in_rotation', 'in_tile')],
+             (ivbo, '2f 4f 1f 2f 1f 2f /i', 'in_offset', 'in_color', 'in_thickness', 'in_size', 'in_rotation', 'in_tile')],
             index_buffer=quad_ibo
             )
     return vao, ivbo
@@ -235,39 +252,38 @@ def convert_to_clip_space(x,y):
     cy = 1.0 - (y / HEIGHT) * 2.0
     return cx, cy
 
-# Update instance via index
-def update_instances(idx, data, instances, convert_xy=True, convert_rgba=True, convert_rot=True):
-    if convert_xy == True:
-        data[idx][0], data[idx][1] = convert_to_clip_space(data[idx][0], data[idx][1])
-    if convert_rgba == True:
-        data[idx][2], data[idx][3], data[idx][4], data[idx][5] = data[idx][2]/255.0, data[idx][3]/255.0, data[idx][4]/255.0, data[idx][5]/255.0
-    if convert_rot == True and len(data[idx]) > 9:
-        data[idx][9] = math.radians(data[idx][9])
-    instances[idx] = data[idx]
+# Pack one pixel-space record into its GPU instance slot
+def update_instances(idx, data, instances):
+    record = np.asarray(data[idx], dtype='f4').copy()
+    record[2:6] /= 255.0
+    if len(record) > 9:
+        record[9] = math.radians(record[9])
+    instances[idx] = record
     return instances
 
-# Point vs rotated rect (used by both collision checks below)
-def point_in_rotated_rect(px, py, cx, cy, scale_x, scale_y, rotation):
-    dx = (px - cx) * aspect
-    dy = py - cy
-    cos_a, sin_a = math.cos(rotation), math.sin(rotation)
+# Point vs rotated pixel-space rect (used by both collision checks below)
+def point_in_rotated_rect(px, py, cx, cy, width, height, rotation):
+    dx = px - cx
+    dy = -(py - cy)
+    angle = math.radians(rotation)
+    cos_a, sin_a = math.cos(angle), math.sin(angle)
     lx = dx * cos_a + dy * sin_a
     ly = -dx * sin_a + dy * cos_a
-    hx, hy = 0.1 * scale_x, 0.1 * scale_y
+    hx, hy = width / 2.0, height / 2.0
     return abs(lx) <= hx and abs(ly) <= hy
 
 
-# World-space corners of a rotated rect
-def get_rect_corners(cx, cy, scale_x, scale_y, rotation):
-    hx, hy = 0.1 * scale_x, 0.1 * scale_y
+# Pixel-space corners of a rotated rect
+def get_rect_corners(cx, cy, width, height, rotation):
+    hx, hy = width / 2.0, height / 2.0
     local = [(-hx,-hy), (hx,-hy), (hx,hy), (-hx,hy)]
-    cos_a, sin_a = math.cos(rotation), math.sin(rotation)
+    angle = math.radians(rotation)
+    cos_a, sin_a = math.cos(angle), math.sin(angle)
     corners = []
     for lx, ly in local:
         rx = lx*cos_a - ly*sin_a
         ry = lx*sin_a + ly*cos_a
-        rx /= aspect
-        corners.append((cx+rx, cy+ry))
+        corners.append((cx+rx, cy-ry))
     return corners
 
 
@@ -302,21 +318,18 @@ def check_convex_polygon_collision(poly1, poly2):
     if not is_convex_polygon(poly1) or not is_convex_polygon(poly2):
         raise ValueError("Polygons must be simple, non-degenerate, and convex")
 
-    clip_poly1 = [convert_to_clip_space(x, y) for x, y in poly1]
-    clip_poly2 = [convert_to_clip_space(x, y) for x, y in poly2]
-    return sat_collision(clip_poly1, clip_poly2)
+    return sat_collision(poly1, poly2)
 
 
-# Convex pygame-coordinate polygon vs converted rect/texture record
+# Convex pygame-coordinate polygon vs pixel-space rect/texture record
 def check_convex_polygon_rect_collision(polygon, rect):
     if not is_convex_polygon(polygon):
         raise ValueError("Polygon must be simple, non-degenerate, and convex")
 
-    clip_polygon = [convert_to_clip_space(x, y) for x, y in polygon]
     rect_corners = get_rect_corners(
         rect[0], rect[1], rect[7], rect[8], rect[9]
     )
-    return sat_collision(clip_polygon, rect_corners)
+    return sat_collision(polygon, rect_corners)
 
 
 # Check 2d collisions
@@ -342,35 +355,28 @@ def check_collision(player, obstacles, type_):
 
 def check_mouse_collisions(mx, my, data, type_):
     all_collided = []
-    mx, my = convert_to_clip_space(mx, my)
     for i in range(len(data)):
         if type_ == 'point':
-            half_p = 10*data[i][6]
-            half_p_x = half_p * (2/WIDTH)
-            half_p_y = half_p * (2/HEIGHT)
-            if (data[i][0]-half_p_x <= mx <= data[i][0]+half_p_x) and (data[i][1]-half_p_y <= my <= data[i][1]+half_p_y):
+            half_p = data[i][6] / 2.0
+            if (data[i][0]-half_p <= mx <= data[i][0]+half_p) and (data[i][1]-half_p <= my <= data[i][1]+half_p):
                 all_collided.append(i)
         elif type_ in ['rect','tex']:
             if point_in_rotated_rect(mx, my, data[i][0], data[i][1], data[i][7], data[i][8], data[i][9]):
                 all_collided.append(i)
     return all_collided
 
-# Convert data to gl-expected format
-# degrees -> rad (rects only)
-# coords -> gl clip space coords
-# rgba -> 0-1 norm
+# Pack pixel-space records into the GPU instance array without mutating data
 def to_gl(data, instances, type_):
-    if type_ in ['rect','tex']:
-        for i in range(len(data)):
-            data[i][9] = math.radians(data[i][9])
-            data[i][0], data[i][1] = convert_to_clip_space(data[i][0], data[i][1])
-            data[i][2], data[i][3], data[i][4], data[i][5] = data[i][2]/255.0, data[i][3]/255.0, data[i][4]/255.0, data[i][5]/255.0
-            instances[i] = data[i]
-    elif type_ == 'point':
-        for j in range(len(data)):
-            data[j][0], data[j][1] = convert_to_clip_space(data[j][0], data[j][1])
-            data[j][2], data[j][3], data[j][4], data[j][5] = data[j][2]/255.0, data[j][3]/255.0, data[j][4]/255.0, data[j][5]/255.0
-            instances[j] = data[j]
+    expected_lengths = {'rect': 10, 'point': 7, 'tex': 12}
+    if type_ not in expected_lengths:
+        raise ValueError("type_ must be 'rect', 'point', or 'tex'")
+    expected_length = expected_lengths[type_]
+    for i in range(len(data)):
+        if len(data[i]) != expected_length:
+            raise ValueError(
+                f"{type_} record must contain {expected_length} values"
+            )
+        update_instances(i, data, instances)
 
     return data, instances
 
@@ -382,12 +388,15 @@ def modify_rgba(idx, data, r,g,b,a):
     data[idx][2],data[idx][3],data[idx][4],data[idx][5] = r,g,b,a
     return data
 
-def modify_scale(idx, data, sx, sy, type_):
+def modify_size(idx, data, width, height, type_):
     if type_ in ['rect', 'tex']:
-        data[idx][7],data[idx][8] = sx,sy
+        data[idx][7],data[idx][8] = width,height
     elif type_ == 'point':
-        data[idx][6] = sx
+        data[idx][6] = width
     return data
+
+def modify_scale(idx, data, sx, sy, type_):
+    return modify_size(idx, data, sx, sy, type_)
 
 def modify_rot(idx, data, angle, type_='rect'):
     if type_ in ['rect', 'tex']:

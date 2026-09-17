@@ -48,13 +48,11 @@ import moderngl
 import pygame
 
 from gl_utils import (
-    HEIGHT,
-    WIDTH,
-    aspect,
     build_point_objs,
     build_rect_objs,
     get_new_instances,
     load_program,
+    set_viewport_size,
     to_gl,
 )
 
@@ -69,12 +67,18 @@ pygame.display.gl_set_attribute(
 )
 pygame.display.gl_set_attribute(pygame.GL_DOUBLEBUFFER, 1)
 
+window_width = 800
+window_height = 600
 screen = pygame.display.set_mode(
-    (WIDTH, HEIGHT),
+    (window_width, window_height),
     pygame.OPENGL | pygame.DOUBLEBUF,
 )
 
+# Synchronize gl_utils with the actual drawable window size.
+viewport_size = set_viewport_size(*screen.get_size())
+
 ctx = moderngl.create_context()
+ctx.viewport = (0, 0, *viewport_size)
 ctx.enable(moderngl.PROGRAM_POINT_SIZE)
 ctx.enable(moderngl.BLEND)
 ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
@@ -82,14 +86,15 @@ ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
 # Compile the supplied shaders.
 rect_program = load_program(ctx, "shaders/rect.vert", "shaders/rect.frag")
 point_program = load_program(ctx, "shaders/point.vert", "shaders/point.frag")
-rect_program["u_aspect"] = aspect
+rect_program["u_viewport_size"] = viewport_size
+point_program["u_viewport_size"] = viewport_size
 
 # Define objects in pygame units: pixel positions, 0-255 RGBA, and degrees.
 rects = [
-    [400, 300, 255, 80, 80, 192, 0.08, 2.0, 1.0, 20],
+    [400, 300, 255, 80, 80, 192, 0.08, 120, 60, 20],
 ]
 points = [
-    [400, 300, 255, 255, 255, 255, 1.0],
+    [400, 300, 255, 255, 255, 255, 20],
 ]
 
 # Capacities may be larger than the current object counts.
@@ -99,7 +104,7 @@ rect_instances, point_instances, unused_tex_instances = get_new_instances(
     0,
 )
 
-# Convert the active records and copy them into the instance arrays.
+# Pack the active records into the GPU instance arrays.
 rects, rect_instances = to_gl(rects, rect_instances, "rect")
 points, point_instances = to_gl(points, point_instances, "point")
 
@@ -131,58 +136,76 @@ pygame.quit()
 Use the module in this order:
 
 1. Configure pygame for an OpenGL 3.3 core context.
-2. Create a window whose size matches `WIDTH` and `HEIGHT`.
-3. Create the ModernGL context.
-4. Load the required shader programs with `load_program()`.
-5. Enable blending and configure the blend function if alpha should produce
+2. Create the pygame/OpenGL window at the desired size.
+3. Call `set_viewport_size(*screen.get_size())`.
+4. Create the ModernGL context and set `ctx.viewport` from the viewport size.
+5. Load the required shader programs with `load_program()`.
+6. Enable blending and configure the blend function if alpha should produce
    translucency.
-6. Set the `u_aspect` uniform on rectangle and texture programs.
-7. Create Python object lists in pygame units.
-8. Allocate fixed-capacity arrays with `get_new_instances()`.
-9. Call `to_gl()` once for each object list.
-10. Create VAOs and VBOs with the matching `build_*_objs()` function.
-11. Render only `len(object_list)` instances.
-12. For later changes, update the Python record, its NumPy slot, and its GPU
+7. Set the returned size as `u_viewport_size` on every program being used.
+8. Create Python object lists in pygame units.
+9. Allocate fixed-capacity arrays with `get_new_instances()`.
+10. Call `to_gl()` once for each object list.
+11. Create VAOs and VBOs with the matching `build_*_objs()` function.
+12. Render only `len(object_list)` instances.
+13. For later changes, update the Python record, its NumPy slot, and its GPU
     buffer slot in that order.
 
 ## Coordinate and value conventions
 
-Before `to_gl()` is called, records use these public-facing units:
+Object records always use these public-facing units:
 
 | Value | Input convention |
 | --- | --- |
 | Position | pygame pixels; origin at the top left; positive Y points down |
 | RGBA color | integers or floats in the range 0-255 |
 | Rotation | degrees |
-| Scale | multiplier; no conversion is performed |
+| Width, height, point size | pixels |
 | Thickness | normalized quad UV value; no conversion is performed |
 | Atlas tile | zero-based column and row; no conversion is performed |
 
-`to_gl()` mutates the records in place. After conversion:
-
-| Value | Stored convention |
-| --- | --- |
-| Position | OpenGL clip space |
-| RGBA color | normalized floats in the range 0-1 |
-| Rotation | radians |
-| Scale, thickness, tile | unchanged |
-
-Do not call `to_gl()` twice on the same records. Doing so converts values that
-are already converted.
+`to_gl()` does not mutate these records. It copies them into a separate NumPy
+instance array, normalizing RGBA and converting rotation to radians only in the
+GPU copy. Positions and dimensions remain pixels in both copies.
 
 ### Window size
 
-The module defines:
+The module defaults to:
 
 ```python
 WIDTH, HEIGHT = 800, 600
 aspect = WIDTH / HEIGHT
 ```
 
-`convert_to_clip_space()` and all collision calculations use these values. The
-pygame window must use the same dimensions. To use another resolution, change
-`WIDTH` and `HEIGHT` in `gl_utils.py` before creating data and ensure that shader
-uniforms receive the updated `aspect`.
+Configure another size without editing `gl_utils.py`:
+
+```python
+screen = pygame.display.set_mode(
+    (1280, 720),
+    pygame.OPENGL | pygame.DOUBLEBUF,
+)
+viewport_size = set_viewport_size(*screen.get_size())
+```
+
+`set_viewport_size()` updates the module's internal `WIDTH`, `HEIGHT`, and
+`aspect`, then returns `(WIDTH, HEIGHT)`. Use that tuple for every shader:
+
+Use the returned value for the rectangle and texture shader uniforms:
+
+```python
+rect_program["u_viewport_size"] = viewport_size
+point_program["u_viewport_size"] = viewport_size
+tex_program["u_viewport_size"] = viewport_size
+line_program["u_viewport_size"] = viewport_size
+```
+
+Because GPU positions and sizes remain in pixels, a runtime resize only requires
+calling `set_viewport_size()`, updating `ctx.viewport`, and assigning the new
+tuple to each program's `u_viewport_size`. Existing object and line buffers do
+not need to be rebuilt.
+
+`set_aspect(width, height)` remains available as a compatibility wrapper. It
+updates the same module values but returns only the numeric aspect ratio.
 
 ## Object record schemas
 
@@ -192,13 +215,13 @@ module API.
 ### Rectangle
 
 ```text
-[x, y, r, g, b, a, thickness, scale_x, scale_y, rotation]
+[x, y, r, g, b, a, thickness, width, height, rotation]
 ```
 
-Example before conversion:
+Example:
 
 ```python
-rect = [200, 150, 255, 0, 0, 128, 0.08, 1.0, 0.5, 45]
+rect = [200, 150, 255, 0, 0, 128, 0.08, 100, 50, 45]
 ```
 
 | Index | Field | Meaning |
@@ -206,41 +229,40 @@ rect = [200, 150, 255, 0, 0, 128, 0.08, 1.0, 0.5, 45]
 | 0-1 | `x`, `y` | Center position |
 | 2-5 | `r`, `g`, `b`, `a` | Color and alpha |
 | 6 | `thickness` | Border thickness |
-| 7-8 | `scale_x`, `scale_y` | Quad scale |
+| 7-8 | `width`, `height` | Pixel dimensions |
 | 9 | `rotation` | Rotation about the center |
 
 `thickness=0` draws a filled rectangle. Values between `0` and `0.5` draw a
 border, with larger values producing a thicker border. Values around `0.5` or
 higher cover essentially the entire rectangle.
 
-At scale `(1, 1)`, the rectangle is a square whose width and height are 10% of
-the configured window height. Scale is applied independently to each axis.
+Rectangle dimensions remain the same number of pixels at every window size.
 
 ### Point
 
 ```text
-[x, y, r, g, b, a, scale]
+[x, y, r, g, b, a, size]
 ```
 
-Example before conversion:
+Example:
 
 ```python
-point = [100, 100, 255, 255, 255, 255, 1.0]
+point = [100, 100, 255, 255, 255, 255, 20]
 ```
 
-Point size is `scale * 20` pixels. Call
+Point `size` is its width and height in pixels. Call
 `ctx.enable(moderngl.PROGRAM_POINT_SIZE)` before rendering points.
 
 ### Textured rectangle
 
 ```text
-[x, y, r, g, b, a, unused, scale_x, scale_y, rotation, tile_x, tile_y]
+[x, y, r, g, b, a, unused, width, height, rotation, tile_x, tile_y]
 ```
 
-Example before conversion:
+Example:
 
 ```python
-sprite = [320, 240, 255, 255, 255, 200, 0, 1.0, 1.0, 0, 2, 1]
+sprite = [320, 240, 255, 255, 255, 200, 0, 64, 64, 0, 2, 1]
 ```
 
 The seventh field exists to keep the textured layout compatible with the quad
@@ -338,9 +360,9 @@ The returned arrays use `numpy.float32` and have these shapes:
 Capacity is fixed. `gl_utils` does not grow these arrays automatically. Choose
 a capacity greater than or equal to the maximum expected object count.
 
-## Initial data conversion
+## Packing initial data
 
-Use `to_gl(data, instances, type_)` before building GPU objects:
+Use `to_gl(data, instances, type_)` to pack records before building GPU objects:
 
 ```python
 rects, rect_instances = to_gl(rects, rect_instances, "rect")
@@ -354,8 +376,8 @@ Valid type strings are:
 - `"point"` for point records
 - `"tex"` for textured rectangle records
 
-The function mutates `data`, fills the corresponding beginning of `instances`,
-and returns both objects.
+The function leaves `data` in pixel/RGBA/degree units, fills the corresponding
+beginning of `instances`, and returns both objects.
 
 ## Creating GPU objects
 
@@ -384,8 +406,9 @@ polygon_vao, polygon_vbo = build_line_obj(
 )
 ```
 
-`build_line_obj()` converts the pygame coordinates and 0-255 RGBA color. Do not
-call `to_gl()` on line points.
+`build_line_obj()` stores pygame pixel coordinates and normalizes the 0-255 RGBA
+color. Do not call `to_gl()` on line points. Coordinates stay in pixels in the
+line VBO.
 
 For a polygon, use `build_polygon_obj()`. It has the same return values and data
 format. At least two points are required for an outline:
@@ -412,7 +435,7 @@ in vec2 quad_uv;
 in vec2 in_offset;
 in vec4 in_color;
 in float in_thickness;
-in vec2 in_scale;
+in vec2 in_size;
 in float in_rotation;
 ```
 
@@ -421,7 +444,7 @@ Point vertex shader inputs:
 ```glsl
 in vec2 in_offset;
 in vec4 in_color;
-in float in_scale;
+in float in_size;
 ```
 
 Line vertex shader inputs:
@@ -439,22 +462,24 @@ in vec2 quad_uv;
 in vec2 in_offset;
 in vec4 in_color;
 in float in_thickness;
-in vec2 in_scale;
+in vec2 in_size;
 in float in_rotation;
 in vec2 in_tile;
 ```
 
-The supplied rectangle and texture vertex shaders also require:
+Every supplied vertex shader requires:
 
 ```glsl
-uniform float u_aspect;
+uniform vec2 u_viewport_size;
 ```
 
 Set it before rendering:
 
 ```python
-rect_program["u_aspect"] = aspect
-tex_program["u_aspect"] = aspect
+rect_program["u_viewport_size"] = viewport_size
+point_program["u_viewport_size"] = viewport_size
+tex_program["u_viewport_size"] = viewport_size
+line_program["u_viewport_size"] = viewport_size
 ```
 
 ## Rendering
@@ -507,7 +532,7 @@ custom joins, or custom end caps are required.
 
 ### Alpha blending
 
-Every object record contains alpha in the 0-255 range before conversion. Enable
+Every object record contains alpha in the 0-255 range. Enable
 standard source-over blending once after creating the context:
 
 ```python
@@ -540,7 +565,7 @@ Complete texture setup:
 
 ```python
 tex_program = load_program(ctx, "shaders/tex.vert", "shaders/tex.frag")
-tex_program["u_aspect"] = aspect
+tex_program["u_viewport_size"] = viewport_size
 
 atlas = load_texture(ctx, "assets/atlas.png")
 atlas.use(location=0)
@@ -548,7 +573,7 @@ tex_program["u_texture"] = 0
 tex_program["u_atlas_grid"] = (4.0, 2.0)
 
 sprites = [
-    [320, 240, 255, 255, 255, 255, 0, 1.0, 1.0, 0, 2, 1],
+    [320, 240, 255, 255, 255, 255, 0, 64, 64, 0, 2, 1],
 ]
 
 rect_instances, point_instances, tex_instances = get_new_instances(0, 0, 100)
@@ -593,103 +618,65 @@ An update has three required steps:
 
 ### Change a position
 
-`modify_xy()` accepts a new pixel position. Convert only the changed position:
+`modify_xy()` accepts a new pixel position:
 
 ```python
 from gl_utils import modify_xy, tstride, update_instances
 
 index = 0
 sprites = modify_xy(index, sprites, 500, 300)
-tex_instances = update_instances(
-    index,
-    sprites,
-    tex_instances,
-    convert_xy=True,
-    convert_rgba=False,
-    convert_rot=False,
-)
+tex_instances = update_instances(index, sprites, tex_instances)
 tex_vbo.write(tex_instances[index].tobytes(), offset=index * tstride)
 ```
 
 ### Change a color or alpha
 
-`modify_rgba()` accepts RGBA values in the 0-255 range. Convert only the changed
-color and alpha:
+`modify_rgba()` accepts RGBA values in the 0-255 range:
 
 ```python
 from gl_utils import modify_rgba, rstride, update_instances
 
 index = 0
 rects = modify_rgba(index, rects, 255, 0, 255, 128)
-rect_instances = update_instances(
-    index,
-    rects,
-    rect_instances,
-    convert_xy=False,
-    convert_rgba=True,
-    convert_rot=False,
-)
+rect_instances = update_instances(index, rects, rect_instances)
 rect_vbo.write(rect_instances[index].tobytes(), offset=index * rstride)
 ```
 
 ### Change a rotation
 
-`modify_rot()` accepts degrees. Convert only the changed rotation:
+`modify_rot()` accepts degrees:
 
 ```python
 rects = modify_rot(index, rects, 45, "rect")
-rect_instances = update_instances(
-    index,
-    rects,
-    rect_instances,
-    convert_xy=False,
-    convert_rgba=False,
-    convert_rot=True,
-)
+rect_instances = update_instances(index, rects, rect_instances)
 rect_vbo.write(rect_instances[index].tobytes(), offset=index * rstride)
 ```
 
-### Change scale, thickness, or atlas tile
+### Change size, thickness, or atlas tile
 
-These values require no conversion. Disable all conversions:
+Sizes are specified directly in pixels:
 
 ```python
-sprites = modify_scale(index, sprites, 2.0, 1.0, "tex")
+sprites = modify_size(index, sprites, 128, 64, "tex")
 sprites = modify_texture(index, sprites, 3, 0, "tex")
-tex_instances = update_instances(
-    index,
-    sprites,
-    tex_instances,
-    convert_xy=False,
-    convert_rgba=False,
-    convert_rot=False,
-)
+tex_instances = update_instances(index, sprites, tex_instances)
 tex_vbo.write(tex_instances[index].tobytes(), offset=index * tstride)
 ```
 
-The conversion flags are important because the Python list remains in converted
-form after `to_gl()`. Re-converting an unchanged position, color, alpha, or
-rotation will corrupt that value.
+Every update repacks the complete record into GPU form without changing the
+source list. No field-specific conversion flags are needed.
 
 ## Adding an object after initialization
 
-Append a record in public-facing units, update its new slot with all applicable
-conversions enabled, and upload that slot:
+Append a record in public-facing units, pack its new slot, and upload that slot:
 
 ```python
 from gl_utils import pstride, update_instances
 
-points.append([250, 200, 0, 255, 0, 160, 1.5])
+points.append([250, 200, 0, 255, 0, 160, 30])
 index = len(points) - 1
 
-point_instances = update_instances(
-    index,
-    points,
-    point_instances,
-    convert_xy=True,
-    convert_rgba=True,
-    convert_rot=False,  # Point records have no rotation field.
-)
+point_instances = update_instances(index, points, point_instances)
 point_vbo.write(point_instances[index].tobytes(), offset=index * pstride)
 ```
 
@@ -723,23 +710,23 @@ update the NumPy array or GPU buffer.
 
 ### `modify_xy(index, data, x, y)`
 
-Replaces fields 0 and 1. Supply pixel coordinates and enable `convert_xy` in the
-following `update_instances()` call.
+Replaces fields 0 and 1 with pixel coordinates.
 
 ### `modify_rgba(index, data, r, g, b, a)`
 
-Replaces fields 2 through 5. Supply 0-255 color and alpha values and enable
-`convert_rgba` in the following update.
+Replaces fields 2 through 5 with 0-255 color and alpha values.
 
-### `modify_scale(index, data, sx, sy, type_)`
+### `modify_size(index, data, width, height, type_)`
 
-For `"rect"` and `"tex"`, replaces fields 7 and 8. For `"point"`, replaces
-field 6 with `sx`; `sy` is ignored.
+For `"rect"` and `"tex"`, replaces fields 7 and 8 with pixel dimensions. For
+`"point"`, replaces field 6 with `width`; `height` is ignored.
+
+`modify_scale()` remains as a compatibility alias but now has the same
+pixel-size behavior.
 
 ### `modify_rot(index, data, angle, type_="rect")`
 
-For `"rect"` and `"tex"`, replaces field 9. Supply degrees and enable
-`convert_rot` in the following update.
+For `"rect"` and `"tex"`, replaces field 9 with an angle in degrees.
 
 ### `modify_thickness(index, data, factor, type_="rect")`
 
@@ -751,8 +738,8 @@ For `"tex"`, replaces fields 10 and 11. Other types are unchanged.
 
 ## Collision detection
 
-Collision functions expect records that have already been converted with
-`to_gl()` or `update_instances()`.
+Collision functions operate directly on the public pixel-space records. They do
+not require `to_gl()` or `update_instances()` first.
 
 ### Rectangle or texture against rectangles/textures
 
@@ -765,7 +752,7 @@ hits = check_collision(sprites[0], rects, "rect")
 The first argument is the rectangle-shaped object being checked. The second is
 the obstacle list. Use either `"rect"` or `"tex"` for rectangle-shaped
 obstacles. Rotated rectangle collision uses the separating axis theorem and
-accounts for scale and aspect ratio.
+accounts for pixel dimensions and rotation.
 
 The return value contains `("rt", index)` tuples:
 
@@ -806,8 +793,8 @@ if check_convex_polygon_collision(triangle, hexagon):
     print("The polygons overlap")
 ```
 
-Check a convex polygon against a rectangle or textured-rectangle record that has
-already passed through `to_gl()`:
+Check a convex polygon against a pixel-space rectangle or textured-rectangle
+record:
 
 ```python
 from gl_utils import check_convex_polygon_rect_collision
@@ -817,13 +804,13 @@ if check_convex_polygon_rect_collision(hexagon, rects[0]):
 ```
 
 Both functions return a Boolean and count touching edges as a collision. They
-convert polygon points from pygame pixels internally. Concave and
-self-intersecting polygons are unsupported and raise `ValueError`.
+operate directly in pygame pixels. Concave and self-intersecting polygons are
+unsupported and raise `ValueError`.
 
 ### Mouse picking
 
-Unlike other collision functions, `check_mouse_collisions()` accepts the mouse
-position in pygame pixels and converts it internally:
+`check_mouse_collisions()` accepts the mouse position and object records in
+pygame pixels:
 
 ```python
 from gl_utils import check_mouse_collisions
@@ -841,9 +828,9 @@ returned when objects overlap.
 
 The following functions are exposed but are normally used internally:
 
-- `point_in_rotated_rect(px, py, cx, cy, scale_x, scale_y, rotation)` returns a
-  Boolean. Coordinates must be in clip space and rotation must be in radians.
-- `get_rect_corners(cx, cy, scale_x, scale_y, rotation)` returns four clip-space
+- `point_in_rotated_rect(px, py, cx, cy, width, height, rotation)` returns a
+  Boolean. Coordinates and dimensions are pixels; rotation is degrees.
+- `get_rect_corners(cx, cy, width, height, rotation)` returns four pixel-space
   corner tuples.
 - `sat_collision(poly1, poly2)` returns whether two convex polygons overlap.
 - `_project()` and `_overlap_on_axis()` are internal SAT helpers.
@@ -870,8 +857,8 @@ Builds a point VAO and returns `(vao, instance_vbo)`.
 
 ### `create_line_vertices(points, rgba)`
 
-Converts a sequence of pygame `(x, y)` pairs and one 0-255 RGBA color into an
-interleaved `float32` array with the layout `[clip_x, clip_y, r, g, b, a]`.
+Packs a sequence of pygame `(x, y)` pairs and one 0-255 RGBA color into an
+interleaved `float32` array with the layout `[x_px, y_px, r, g, b, a]`.
 At least two points and exactly four color components are required.
 
 ### `build_line_obj(ctx, program, points, rgba)`
@@ -881,7 +868,7 @@ The shader must expose `in_position` as `vec2` and `in_color` as `vec4`.
 
 ### `update_line_obj(vbo, points, rgba)`
 
-Converts and uploads replacement line vertices, then returns the vertex count.
+Packs and uploads replacement line vertices, then returns the vertex count.
 The replacement data cannot be larger than the VBO created by
 `build_line_obj()`.
 
@@ -915,20 +902,35 @@ positions, so uniform translation and RGBA changes do not repeat validation.
 
 Builds textured-quad geometry and returns `(vao, instance_vbo)`.
 
+### `set_viewport_size(width, height)`
+
+Updates the module-level `WIDTH`, `HEIGHT`, and `aspect` values and returns the
+integer `(WIDTH, HEIGHT)` tuple for shader uniforms. Width and height must be
+positive:
+
+```python
+viewport_size = set_viewport_size(*screen.get_size())
+```
+
+`set_aspect(width, height)` is a compatibility wrapper that performs the same
+update and returns the numeric aspect ratio.
+
 ### `convert_to_clip_space(x, y)`
 
 Converts pygame pixels to clip space using `WIDTH` and `HEIGHT`. Returns
-`(clip_x, clip_y)`.
+`(clip_x, clip_y)`. The standard object, line, polygon, and collision APIs are
+pixel-native and do not require this helper.
 
 ### `to_gl(data, instances, type_)`
 
-Converts every populated record, copies it into `instances`, and returns
-`(data, instances)`. This function mutates `data`.
+Packs every populated record into `instances` and returns `(data, instances)`.
+The source records remain in pixel, 0-255 RGBA, and degree units.
 
-### `update_instances(idx, data, instances, convert_xy=True, convert_rgba=True, convert_rot=True)`
+### `update_instances(idx, data, instances)`
 
-Conditionally converts one record, copies it into `instances[idx]`, and returns
-`instances`. This function does not write to the GPU.
+Packs one complete record into `instances[idx]` and returns `instances`. It
+normalizes RGBA and converts rectangle/texture rotation to radians in the GPU
+copy. It does not mutate the source record or write to the GPU.
 
 ### `load_texture(ctx, path)`
 
@@ -944,12 +946,12 @@ Returns the indices of all objects containing the supplied mouse position.
 
 ### `check_convex_polygon_collision(poly1, poly2)`
 
-Converts two convex pygame-coordinate polygons to clip space and returns whether
-they overlap. Each polygon requires at least three perimeter-ordered points.
+Returns whether two convex pygame-coordinate polygons overlap. Each polygon
+requires at least three perimeter-ordered points.
 
 ### `check_convex_polygon_rect_collision(polygon, rect)`
 
-Returns whether a convex pygame-coordinate polygon overlaps a converted
+Returns whether a convex pygame-coordinate polygon overlaps a pixel-space
 rectangle or texture record.
 
 ## Common failure cases
@@ -957,8 +959,9 @@ rectangle or texture record.
 - **Nothing is visible:** Confirm that the correct VAO is rendered with
   `instances=len(data)`, the object list is not empty, and `to_gl()` ran before
   the VAO was built.
-- **Rectangles or sprites are stretched:** Set `u_aspect` and ensure the window
-  size matches `WIDTH` and `HEIGHT`.
+- **Objects are stretched or misplaced:** Call
+  `viewport_size = set_viewport_size(*screen.get_size())` and assign that tuple
+  to every active program's `u_viewport_size` uniform.
 - **Points are the wrong size or invisible:** Enable
   `moderngl.PROGRAM_POINT_SIZE` and render with `vertices=1`.
 - **A polygon is missing its closing edge:** Render it with `LINE_LOOP`, or
@@ -973,8 +976,8 @@ rectangle or texture record.
   support wide native lines. Use rotated filled rectangles for reliable width.
 - **Updating a line raises a buffer-size error:** Rebuild it with
   `build_line_obj()` using the larger point list.
-- **An updated object jumps or changes color unexpectedly:** A previously
-  converted field was converted again. Disable its `update_instances()` flag.
+- **An updated object has the wrong size:** Rectangle and texture dimensions,
+  and point size, are pixels rather than scale factors.
 - **An update does not appear:** Writing to the Python list or NumPy array alone
   is insufficient. Upload the record with `vbo.write()`.
 - **A buffer write fails or a new object is missing:** The object count may have
