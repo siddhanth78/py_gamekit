@@ -204,9 +204,6 @@ calling `set_viewport_size()`, updating `ctx.viewport`, and assigning the new
 tuple to each program's `u_viewport_size`. Existing object and line buffers do
 not need to be rebuilt.
 
-`set_aspect(width, height)` remains available as a compatibility wrapper. It
-updates the same module values but returns only the numeric aspect ratio.
-
 ## Object record schemas
 
 Each object is represented by a mutable Python list. Field order is part of the
@@ -911,9 +908,6 @@ positive:
 ```python
 viewport_size = set_viewport_size(*screen.get_size())
 ```
-
-`set_aspect(width, height)` is a compatibility wrapper that performs the same
-update and returns the numeric aspect ratio.
 
 ### `convert_to_clip_space(x, y)`
 

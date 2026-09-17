@@ -21,10 +21,6 @@ def set_viewport_size(width, height):
     aspect = WIDTH / HEIGHT
     return WIDTH, HEIGHT
 
-def set_aspect(width, height):
-    set_viewport_size(width, height)
-    return aspect
-
 # 4 bytes x 10 floats (rects)
 rstride = 4*10
 
