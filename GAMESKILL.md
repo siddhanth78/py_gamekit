@@ -66,19 +66,31 @@ Begin implementation **only** after the user explicitly says **"let's build it"*
 
 Implementation authorization permits changes only within the scope of the agreed plan unless the user explicitly expands that scope.
 
+## Bootstrap Requirement
+
+Before any implementation work, ensure boilerplate files exist:
+```bash
+python3 bootstrap.py
+```
+
+This generates (if not present):
+* `game_state.py` – Entity-ID-based GameState for scalable architecture
+* `input_handler.py` – Input event → intent decoupler
+* `collision_manager.py` – Collision enter/exit tracking
+
+If these files already exist, bootstrap will skip them. Safe to run repeatedly.
+
 ## Implementation
 
 Once implementation is authorized:
-
-Main step: Run bootstrap.py to generate boilerplate code and use it as the base. Rename the generated files based on user specifications and use them for the rest of the project.
-
-1. Re-read or re-check the relevant sections of `GLSKILL.md`.
-2. Inspect the current implementation files affected by the change.
-3. Implement using the exact APIs, structures, formats, shaders, update behaviors, collision behaviors, and conventions documented in `GLSKILL.md`.
-4. Reuse existing project abstractions instead of recreating functionality already provided by the engine.
-5. If PNG assets are involved, follow `PNGSKILL.md` for the asset workflow while continuing to use `GLSKILL.md` for their integration into the game loop.
-6. Keep changes scoped strictly to the requested feature; avoid unrelated refactors unless required for correctness.
-7. Verify the implementation against the documented behavior after making changes.
+1. **Run bootstrap:** `python3 bootstrap.py` to ensure boilerplate is in place.
+2. Re-read or re-check the relevant sections of `GLSKILL.md`.
+3. Inspect the current implementation files affected by the change.
+4. Implement using the exact APIs, structures, formats, shaders, update behaviors, collision behaviors, and conventions documented in `GLSKILL.md`.
+5. Reuse existing project abstractions instead of recreating functionality already provided by the engine.
+6. If PNG assets are involved, follow `PNGSKILL.md` for the asset workflow while continuing to use `GLSKILL.md` for their integration into the game loop.
+7. Keep changes scoped strictly to the requested feature; avoid unrelated refactors unless required for correctness.
+8. Verify the implementation against the documented behavior after making changes.
 
 Do not rely on remembered versions of the documentation. The files currently present in the project are the source of truth.
 
