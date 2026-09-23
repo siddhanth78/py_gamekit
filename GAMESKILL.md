@@ -69,6 +69,9 @@ Implementation authorization permits changes only within the scope of the agreed
 ## Implementation
 
 Once implementation is authorized:
+
+Main step: Run bootstrap.py to generate boilerplate code and use it as the base. Rename the generated files based on user specifications and use them for the rest of the project.
+
 1. Re-read or re-check the relevant sections of `GLSKILL.md`.
 2. Inspect the current implementation files affected by the change.
 3. Implement using the exact APIs, structures, formats, shaders, update behaviors, collision behaviors, and conventions documented in `GLSKILL.md`.
