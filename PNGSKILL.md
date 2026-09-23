@@ -9,6 +9,23 @@ Use this workflow when the user asks to create a PNG with the project's JSON
 bitmap generator. This produces deterministic pixel art; do not substitute an
 image-generation model.
 
+## Immediate Bootstrap and Workspace Boundary
+
+Before gathering requirements or creating an asset, run this from the toolkit
+root:
+
+```bash
+python3 bootstrap.py
+```
+
+The shared generator remains at `png_generator.py` in the toolkit root. All
+project-specific PNG work belongs in the bootstrapped workspace:
+
+* editable specifications: `New Project/bitmap/`
+* generated images and manifests: `New Project/assets/`
+
+Do not create project `bitmap/` or `assets/` directories at the toolkit root.
+
 ## Gather the request
 
 If the user has not described the asset, ask what they want generated. Also ask
@@ -24,13 +41,13 @@ for details already supplied. Use a lowercase kebab-case filename ending in
 
 ## Create the bitmap
 
-Work from the project root containing `png_generator.py`. Create `bitmap/` and
-`assets/` if either directory is absent.
+Work from the toolkit root containing `png_generator.py`. Bootstrap, rather than
+the asset task, is responsible for creating the project directories.
 
 Write the model-authored specification to:
 
 ```text
-bitmap/<asset-name>.json
+New Project/bitmap/<asset-name>.json
 ```
 
 Use this schema:
@@ -77,7 +94,7 @@ The `fill` field also accepts a compact coordinate map when that is clearer:
 Run:
 
 ```bash
-python3 png_generator.py --bitmap bitmap/<asset-name>.json --output assets/<asset-name>.png
+python3 png_generator.py --bitmap "New Project/bitmap/<asset-name>.json" --output "New Project/assets/<asset-name>.png"
 ```
 
 Do not overwrite an existing JSON or PNG unless the user requested replacement.
@@ -91,7 +108,6 @@ JSON as the editable source.
 Report both final project paths to the user:
 
 ```text
-bitmap/<asset-name>.json
-assets/<asset-name>.png
+New Project/bitmap/<asset-name>.json
+New Project/assets/<asset-name>.png
 ```
-

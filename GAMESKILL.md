@@ -5,9 +5,35 @@ description: Plan, build, or modify games in this project using the project's do
 
 # Game Builder
 
+## Immediate Bootstrap
+
+At the beginning of every new game task, run this command from the toolkit root
+before planning, inspecting project code, or creating files:
+
+```bash
+python3 bootstrap.py
+```
+
+This is the one allowed filesystem change during planning. It is safe to run
+repeatedly because it never overwrites existing project files.
+
+Bootstrap establishes `New Project/` as the active game workspace and creates:
+
+* `New Project/game_state.py` – entity and GPU-instance state
+* `New Project/input_handler.py` – input-to-intent boundary
+* `New Project/collision_manager.py` – collision enter/exit tracking
+* `New Project/assets/` – generated PNG output and asset metadata
+* `New Project/bitmap/` – editable bitmap JSON sources
+
+The shared toolkit remains outside the game workspace. In particular,
+`gl_utils.py`, `shaders/`, `png_generator.py`, `GLSKILL.md`, and `PNGSKILL.md`
+stay at the repository root. Do not copy generated game code or assets into the
+toolkit root.
+
 ## Required Documentation
 
-Before planning, reasoning about, debugging, or changing a game in this project, read `GLSKILL.md` completely.
+Immediately after bootstrapping, read `GLSKILL.md` completely before planning,
+reasoning about, debugging, or changing a game.
 
 Treat `GLSKILL.md` as the authoritative technical documentation for the project. Base all technical decisions and implementations on its current contents rather than memory, assumptions, generic ModernGL patterns, or inferred behavior.
 
@@ -40,12 +66,14 @@ Do not use `PNGSKILL.md` as a substitute for the implementation rules in `GLSKIL
 ## Documentation-First Workflow
 
 For every game task:
-1. Read `GLSKILL.md`.
-2. Identify the specific documentation sections relevant to the request.
-3. Inspect the existing codebase implementation to verify the current application state.
-4. Base the proposed architecture entirely on the documented APIs and conventions.
-5. If PNG work is required, read and follow `PNGSKILL.md`.
-6. During implementation, use the documented interfaces from `GLSKILL.md` rather than creating parallel or replacement systems unless explicitly requested.
+1. Run `python3 bootstrap.py` from the toolkit root immediately.
+2. Treat `New Project/` as the active game workspace.
+3. Read `GLSKILL.md`.
+4. Identify the documentation sections relevant to the request.
+5. Inspect the existing implementation inside `New Project/`.
+6. Base the architecture entirely on the documented APIs and conventions.
+7. If PNG work is required, read and follow `PNGSKILL.md`.
+8. During implementation, use the documented interfaces from `GLSKILL.md` rather than creating parallel or replacement systems unless explicitly requested.
 
 If documentation and existing code appear to disagree, call out the discrepancy and determine the smallest change that preserves the documented project contract.
 
@@ -55,10 +83,10 @@ Treat game ideas, feature discussions, architecture discussions, and requests to
 
 During planning:
 * Read `GLSKILL.md` and any other relevant project files.
-* Inspect existing code and assets as needed.
+* Inspect existing code and assets under `New Project/` as needed.
 * Use the documentation to determine what the engine already supports natively.
 * Design the feature strictly around the documented project APIs.
-* **Do not** create, modify, rename, or delete game code, assets, tests, configuration, or generated data.
+* Apart from the mandatory bootstrap, **do not** create, modify, rename, or delete game code, assets, tests, configuration, or generated data.
 
 A plan must identify the specific documented APIs or systems that the eventual implementation will use.
 
@@ -66,31 +94,22 @@ Begin implementation **only** after the user explicitly says **"let's build it"*
 
 Implementation authorization permits changes only within the scope of the agreed plan unless the user explicitly expands that scope.
 
-## Bootstrap Requirement
-
-Before any implementation work, ensure boilerplate files exist:
-```bash
-python3 bootstrap.py
-```
-
-This generates (if not present):
-* `game_state.py` – Entity-ID-based GameState for scalable architecture
-* `input_handler.py` – Input event → intent decoupler
-* `collision_manager.py` – Collision enter/exit tracking
-
-If these files already exist, bootstrap will skip them. Safe to run repeatedly.
-
 ## Implementation
 
 Once implementation is authorized:
-1. **Run bootstrap:** `python3 bootstrap.py` to ensure boilerplate is in place.
+1. Re-check that bootstrap ran at the start of the task.
 2. Re-read or re-check the relevant sections of `GLSKILL.md`.
-3. Inspect the current implementation files affected by the change.
-4. Implement using the exact APIs, structures, formats, shaders, update behaviors, collision behaviors, and conventions documented in `GLSKILL.md`.
-5. Reuse existing project abstractions instead of recreating functionality already provided by the engine.
-6. If PNG assets are involved, follow `PNGSKILL.md` for the asset workflow while continuing to use `GLSKILL.md` for their integration into the game loop.
-7. Keep changes scoped strictly to the requested feature; avoid unrelated refactors unless required for correctness.
-8. Verify the implementation against the documented behavior after making changes.
+3. Inspect the generated boilerplate and other affected files in `New Project/`.
+4. Modify and extend `game_state.py`, `input_handler.py`, and `collision_manager.py` when their responsibilities are needed. Do not bypass them with duplicate systems.
+5. Create `New Project/main.py` as the composition root that initializes the engine and wires the adapted components together. It must resolve `PROJECT_ROOT` from its own file location, resolve `TOOLKIT_ROOT` as the parent directory, and add `TOOLKIT_ROOT` to `sys.path` before importing boilerplate modules that depend on `gl_utils`.
+6. Create additional focused modules inside `New Project/` when functionality does not belong in the three boilerplate components or `main.py`.
+7. Implement using the exact APIs, structures, formats, shaders, update behaviors, collision behaviors, and conventions documented in `GLSKILL.md`.
+8. If PNG assets are involved, follow `PNGSKILL.md`; all bitmap sources and generated PNGs must stay inside `New Project/`.
+9. Keep changes scoped strictly to the requested feature and verify the implementation against the documented behavior.
+
+The boilerplate is a starting architecture, not immutable vendor code. Adapt it
+to the game while preserving each module's responsibility, then wire those
+components through `New Project/main.py`.
 
 Do not rely on remembered versions of the documentation. The files currently present in the project are the source of truth.
 

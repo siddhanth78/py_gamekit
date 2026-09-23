@@ -7,6 +7,36 @@ description: Code-accurate technical reference for gl_utils.py, a pixel-native 2
 
 `gl_utils.py` is a pixel-native 2D rendering helper built on Pygame, ModernGL, and NumPy. It translates standard Python data structures into hardware-accelerated GPU instances while preserving your local tracking sequences in native Pygame pixel space.
 
+## Workspace Boundary
+
+Run `python3 bootstrap.py` from the toolkit root immediately when starting a new
+game task. Game-specific code belongs in `New Project/`; the shared
+`gl_utils.py` implementation and `shaders/` directory remain separate at the
+toolkit root.
+
+The model must adapt the bootstrapped `game_state.py`, `input_handler.py`, and
+`collision_manager.py` for the requested game, then wire them together from
+`New Project/main.py`. Additional game-specific modules may be created inside
+`New Project/` for responsibilities that do not fit those components.
+
+At the top of `New Project/main.py`, resolve the game and toolkit roots before
+importing the bootstrapped modules so `from gl_utils import ...` works while the
+shared engine stays separate:
+
+```python
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+TOOLKIT_ROOT = PROJECT_ROOT.parent
+if str(TOOLKIT_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLKIT_ROOT))
+```
+
+Resolve shader paths against the toolkit root. Do not duplicate or move the
+shared GL implementation into the game workspace unless the user explicitly
+requests an engine fork.
+
 ---
 
 ## Data Layout Specifications
@@ -136,6 +166,12 @@ Your vertex shaders must implement these exact attribute names and component ord
 `load_texture(ctx, path)` processes assets automatically using Pygame's exporter:
 ```python
 texture = load_texture(ctx, "assets/sprite.png")
+```
+For a bootstrapped game, make the asset path independent of the current working
+directory:
+
+```python
+texture = load_texture(ctx, str(PROJECT_ROOT / "assets" / "sprite.png"))
 ```
 * **Axis Conversions:** The pipeline uses `pygame.image.tobytes(surface, 'RGBA', True)`. The trailing `True` argument instructs Pygame to automatically perform a vertical flip to match OpenGL's bottom-left texture coordinates.
 * **Filtering Rule:** Textures are strictly bound to `NEAREST` filtering for both magnification and minification to keep pixel-art edge profiles sharp.

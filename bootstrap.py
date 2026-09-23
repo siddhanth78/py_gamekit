@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""
-Bootstrap: Generate boilerplate files if they don't exist.
+"""Create an isolated workspace for the next game project.
 
-Run this once to initialize the game project structure.
-Then, GAMESKILL.md can reference this to ensure boilerplate is in place.
+The shared rendering and PNG tools stay beside this script. Game-specific code,
+bitmap specifications, and generated assets live under ``New Project/``.
+Existing project files are never overwritten.
 """
 
-import os
 from pathlib import Path
+
+
+PROJECT_DIRECTORY = "New Project"
+PROJECT_DIRECTORIES = ("assets", "bitmap")
 
 BOILERPLATE_FILES = {
     'game_state.py': '''"""
@@ -509,37 +512,52 @@ class CollisionManager:
 }
 
 def bootstrap():
-    """Generate boilerplate files if they don't exist."""
-    project_root = Path(__file__).parent
+    """Create the project folder, asset folders, and missing boilerplate."""
+    toolkit_root = Path(__file__).resolve().parent
+    project_root = toolkit_root / PROJECT_DIRECTORY
     created = []
     skipped = []
+
+    if project_root.exists():
+        skipped.append(f"{PROJECT_DIRECTORY}/")
+    else:
+        project_root.mkdir()
+        created.append(f"{PROJECT_DIRECTORY}/")
+
+    for directory in PROJECT_DIRECTORIES:
+        directory_path = project_root / directory
+        relative_path = f"{PROJECT_DIRECTORY}/{directory}/"
+        if directory_path.exists():
+            skipped.append(relative_path)
+        else:
+            directory_path.mkdir()
+            created.append(relative_path)
     
     for filename, content in BOILERPLATE_FILES.items():
         filepath = project_root / filename
+        relative_path = f"{PROJECT_DIRECTORY}/{filename}"
         
         if filepath.exists():
-            skipped.append(filename)
+            skipped.append(relative_path)
         else:
-            filepath.write_text(content)
-            created.append(filename)
+            filepath.write_text(content, encoding="utf-8")
+            created.append(relative_path)
     
     # Print results
     print("=" * 60)
     print("BOOTSTRAP COMPLETE")
     print("=" * 60)
+    print(f"\nProject workspace: {project_root}")
     
     if created:
-        print(f"\n✓ Created {len(created)} file(s):")
+        print(f"\n✓ Created {len(created)} item(s):")
         for fname in created:
             print(f"  - {fname}")
     
     if skipped:
-        print(f"\n⊘ Skipped {len(skipped)} file(s) (already exist):")
+        print(f"\n⊘ Skipped {len(skipped)} item(s) (already exist):")
         for fname in skipped:
             print(f"  - {fname}")
-    
-    if not created and not skipped:
-        print("\nNothing to do.")
     
     print("\n" + "=" * 60)
 
