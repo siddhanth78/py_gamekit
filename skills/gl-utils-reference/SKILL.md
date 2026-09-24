@@ -1,6 +1,6 @@
 ---
 name: gl-utils-reference
-description: Code-accurate technical reference for gl_utils.py, a pixel-native 2D ModernGL rendering helper built on Pygame and NumPy. Use when writing rendering loops, defining object structures, or managing memory buffers and collisions.
+description: Use the shared gl_utils.py pixel-native ModernGL API correctly. Use when implementing or reviewing rendering loops, instance data, shaders, buffers, textures, geometry, mouse interaction, or collisions.
 ---
 
 # `gl_utils` Reference
@@ -10,16 +10,16 @@ description: Code-accurate technical reference for gl_utils.py, a pixel-native 2
 ## Workspace Boundary
 
 Run `python3 bootstrap.py` from the toolkit root immediately when starting a new
-game task. Game-specific code belongs in `New Project/`; the shared
-`gl_utils.py` implementation and `shaders/` directory remain separate at the
-toolkit root.
+game task. Use the marked project path printed by bootstrap as
+`<project-root>`. The shared `gl_utils.py` implementation and `shaders/`
+directory remain separate at the toolkit root.
 
 The model must adapt the bootstrapped `game_state.py`, `input_handler.py`, and
 `collision_manager.py` for the requested game, then wire them together from
-`New Project/main.py`. Additional game-specific modules may be created inside
-`New Project/` for responsibilities that do not fit those components.
+`<project-root>/main.py`. Additional game-specific modules may be created inside
+`<project-root>/` for responsibilities that do not fit those components.
 
-At the top of `New Project/main.py`, resolve the game and toolkit roots before
+At the top of `<project-root>/main.py`, resolve the game and toolkit roots before
 importing the bootstrapped modules so `from gl_utils import ...` works while the
 shared engine stays separate:
 

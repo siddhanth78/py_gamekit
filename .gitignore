@@ -1,9 +1,3 @@
 *pycache*
-*assets*
-*bitmap*
-
-# New game workspaces own their generated sources and assets.
-!New Project/assets/
-!New Project/assets/**
-!New Project/bitmap/
-!New Project/bitmap/**
+*.pyc
+.DS_Store

@@ -1,6 +1,6 @@
 ---
 name: png-bitmap-generator
-description: Create deterministic pixel-art PNG assets from model-authored bitmap JSON using this project's png_generator.py tool.
+description: Create or modify deterministic pixel-art PNG assets in a marked PygameKit project using bitmap JSON and png_generator.py. Use for project sprites, atlases, textures, and other generated PNG artwork.
 ---
 
 # PNG Bitmap Generator
@@ -19,10 +19,11 @@ python3 bootstrap.py
 ```
 
 The shared generator remains at `png_generator.py` in the toolkit root. All
-project-specific PNG work belongs in the bootstrapped workspace:
+project-specific PNG work belongs in the workspace path printed by bootstrap,
+referred to below as `<project-root>`:
 
-* editable specifications: `New Project/bitmap/`
-* generated images and manifests: `New Project/assets/`
+* editable specifications: `<project-root>/bitmap/`
+* generated images and asset metadata: `<project-root>/assets/`
 
 Do not create project `bitmap/` or `assets/` directories at the toolkit root.
 
@@ -47,7 +48,7 @@ the asset task, is responsible for creating the project directories.
 Write the model-authored specification to:
 
 ```text
-New Project/bitmap/<asset-name>.json
+<project-root>/bitmap/<asset-name>.json
 ```
 
 Use this schema:
@@ -94,7 +95,7 @@ The `fill` field also accepts a compact coordinate map when that is clearer:
 Run:
 
 ```bash
-python3 png_generator.py --bitmap "New Project/bitmap/<asset-name>.json" --output "New Project/assets/<asset-name>.png"
+python3 png_generator.py --bitmap "<project-root>/bitmap/<asset-name>.json" --output "<project-root>/assets/<asset-name>.png"
 ```
 
 Do not overwrite an existing JSON or PNG unless the user requested replacement.
@@ -105,9 +106,12 @@ dimensions, transparency, orientation, silhouette, and requested colors. If it
 is incorrect, edit the JSON and rerun the same command. Keep the final bitmap
 JSON as the editable source.
 
+After asset work is complete, run `python3 bootstrap.py` again to refresh the
+`.pygamekit-project` inventory.
+
 Report both final project paths to the user:
 
 ```text
-New Project/bitmap/<asset-name>.json
-New Project/assets/<asset-name>.png
+<project-root>/bitmap/<asset-name>.json
+<project-root>/assets/<asset-name>.png
 ```

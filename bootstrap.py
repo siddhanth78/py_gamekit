@@ -1,16 +1,30 @@
 #!/usr/bin/env python3
-"""Create an isolated workspace for the next game project.
+"""Create or discover an isolated PygameKit project workspace.
 
 The shared rendering and PNG tools stay beside this script. Game-specific code,
-bitmap specifications, and generated assets live under ``New Project/``.
-Existing project files are never overwritten.
+bitmap specifications, and generated assets live in the directory marked by
+``.pygamekit-project``. Existing project files are never overwritten.
 """
 
+import json
 from pathlib import Path
 
 
-PROJECT_DIRECTORY = "New Project"
+DEFAULT_PROJECT_DIRECTORY = "New Project"
 PROJECT_DIRECTORIES = ("assets", "bitmap")
+PROJECT_MARKER = ".pygamekit-project"
+IGNORED_DIRECTORIES = {
+    "__pycache__",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "node_modules",
+    "venv",
+}
+IGNORED_FILES = {PROJECT_MARKER, ".DS_Store"}
+CODE_SUFFIXES = {".py", ".vert", ".frag", ".glsl", ".wgsl"}
 
 BOILERPLATE_FILES = {
     'game_state.py': '''"""
@@ -511,22 +525,95 @@ class CollisionManager:
 '''
 }
 
-def bootstrap():
-    """Create the project folder, asset folders, and missing boilerplate."""
-    toolkit_root = Path(__file__).resolve().parent
-    project_root = toolkit_root / PROJECT_DIRECTORY
+def find_project_root(toolkit_root):
+    marked_projects = sorted(
+        marker.parent
+        for marker in toolkit_root.glob(f"*/{PROJECT_MARKER}")
+        if marker.is_file()
+    )
+
+    if len(marked_projects) > 1:
+        choices = "\n".join(f"  - {path}" for path in marked_projects)
+        raise SystemExit(
+            "Multiple PygameKit projects were found. Move inactive projects "
+            f"outside the toolkit root or ask the user which one to use:\n{choices}"
+        )
+    if marked_projects:
+        return marked_projects[0]
+    return toolkit_root / DEFAULT_PROJECT_DIRECTORY
+
+
+def get_project_inventory(project_root):
+    directories = []
+    files = {
+        "code": [],
+        "assets": [],
+        "bitmaps": [],
+        "other": [],
+    }
+
+    for path in sorted(project_root.rglob('*')):
+        relative = path.relative_to(project_root)
+        if any(part in IGNORED_DIRECTORIES for part in relative.parts):
+            continue
+
+        relative_path = relative.as_posix()
+        if path.is_dir():
+            directories.append(relative_path)
+            continue
+        if path.name in IGNORED_FILES or path.suffix == '.pyc':
+            continue
+
+        if relative.parts[0] == 'assets':
+            files['assets'].append(relative_path)
+        elif relative.parts[0] == 'bitmap':
+            files['bitmaps'].append(relative_path)
+        elif path.suffix.lower() in CODE_SUFFIXES:
+            files['code'].append(relative_path)
+        else:
+            files['other'].append(relative_path)
+
+    return directories, files
+
+
+def update_project_marker(project_root):
+    directories, files = get_project_inventory(project_root)
+    manifest = {
+        "tool": "PygameKit",
+        "schema_version": 1,
+        "project_root": ".",
+        "directories": directories,
+        "files": files,
+    }
+    marker_path = project_root / PROJECT_MARKER
+    content = json.dumps(manifest, indent=2) + '\n'
+
+    if marker_path.exists() and marker_path.read_text(encoding='utf-8') == content:
+        return "unchanged"
+    status = "updated" if marker_path.exists() else "created"
+    marker_path.write_text(content, encoding='utf-8')
+    return status
+
+
+def bootstrap(toolkit_root=None):
+    """Discover or create the active project and refresh its inventory."""
+    if toolkit_root is None:
+        toolkit_root = Path(__file__).resolve().parent
+    else:
+        toolkit_root = Path(toolkit_root).resolve()
+    project_root = find_project_root(toolkit_root)
     created = []
     skipped = []
 
     if project_root.exists():
-        skipped.append(f"{PROJECT_DIRECTORY}/")
+        skipped.append(f"{project_root.name}/")
     else:
         project_root.mkdir()
-        created.append(f"{PROJECT_DIRECTORY}/")
+        created.append(f"{project_root.name}/")
 
     for directory in PROJECT_DIRECTORIES:
         directory_path = project_root / directory
-        relative_path = f"{PROJECT_DIRECTORY}/{directory}/"
+        relative_path = f"{project_root.name}/{directory}/"
         if directory_path.exists():
             skipped.append(relative_path)
         else:
@@ -535,19 +622,22 @@ def bootstrap():
     
     for filename, content in BOILERPLATE_FILES.items():
         filepath = project_root / filename
-        relative_path = f"{PROJECT_DIRECTORY}/{filename}"
+        relative_path = f"{project_root.name}/{filename}"
         
         if filepath.exists():
             skipped.append(relative_path)
         else:
             filepath.write_text(content, encoding="utf-8")
             created.append(relative_path)
+
+    marker_status = update_project_marker(project_root)
     
     # Print results
     print("=" * 60)
-    print("BOOTSTRAP COMPLETE")
+    print("PYGAMEKIT BOOTSTRAP COMPLETE")
     print("=" * 60)
     print(f"\nProject workspace: {project_root}")
+    print(f"Project marker: {project_root / PROJECT_MARKER} ({marker_status})")
     
     if created:
         print(f"\n✓ Created {len(created)} item(s):")
