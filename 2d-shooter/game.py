@@ -31,6 +31,12 @@ class PlayerStats:
     projectiles: int = 1
 
 
+MAX_PLAYER_HEALTH = 1000
+MAX_PLAYER_SHIELDS = 5
+MAX_PLAYER_PROJECTILES = 4
+MAX_PLAYER_MOVE_SPEED = 260.0 * 4.0
+
+
 @dataclass
 class Enemy:
     entity_id: int
@@ -42,9 +48,19 @@ class Enemy:
     size: float
     spawn_timer: float
     telegraph_id: int
+    base_tile: int
+    contact_damage: int
+    projectile_damage: int
+    aoe_damage: int
+    aoe_size: float
+    score: int
+    hitbox_scale: float
+    animated: bool
     shot_timer: float = 1.0
     anim_timer: float = 0.0
     strafe: float = 1.0
+    aoe_timer: float = 5.0
+    aoe_warning: bool = False
 
 
 @dataclass
@@ -70,6 +86,75 @@ class Effect:
     end_size: float
 
 
+@dataclass
+class AoePulse:
+    entity_id: int
+    owner_id: int
+    x: float
+    y: float
+    size: float
+    damage: int
+    warning_left: float = 0.75
+    life: float = 1.05
+    total_life: float = 1.05
+    hit: bool = False
+
+
+@dataclass(frozen=True)
+class EnemyProfile:
+    batch: str
+    base_tile: int
+    unlock_wave: int
+    size: float
+    base_speed: float
+    speed_growth: float
+    max_speed: float
+    base_health: float
+    health_growth: float
+    base_contact_damage: float
+    contact_growth: float
+    score: int
+    base_projectile_damage: float = 0.0
+    projectile_growth: float = 0.0
+    base_aoe_damage: float = 0.0
+    aoe_growth: float = 0.0
+    aoe_size: float = 0.0
+    hitbox_scale: float = 0.68
+    animated: bool = True
+
+
+ENEMY_PROFILES = {
+    "chaser": EnemyProfile(
+        "actors", 2, 1, 38.0, 116.0, 4.0, 260.0,
+        2.0, 1.0 / 3.0, 18.0, 0.35, 100,
+    ),
+    "shooter": EnemyProfile(
+        "actors", 4, 2, 38.0, 92.0, 1.0, 140.0,
+        2.0, 0.40, 18.0, 0.35, 175,
+        base_projectile_damage=14.0, projectile_growth=0.30,
+    ),
+    "brute": EnemyProfile(
+        "actors", 6, 4, 48.0, 72.0, 0.60, 105.0,
+        11.0, 1.0, 28.0, 0.60, 350,
+        hitbox_scale=0.76, animated=False,
+    ),
+    "nova": EnemyProfile(
+        "late_enemies", 0, 21, 44.0, 96.0, 1.0, 135.0,
+        18.0, 1.10, 22.0, 0.40, 600,
+        base_aoe_damage=20.0, aoe_growth=0.50, aoe_size=120.0,
+    ),
+    "bulwark": EnemyProfile(
+        "late_enemies", 2, 21, 56.0, 68.0, 0.65, 100.0,
+        28.0, 1.50, 32.0, 0.60, 900,
+        base_aoe_damage=26.0, aoe_growth=0.65, aoe_size=160.0,
+        hitbox_scale=0.76,
+    ),
+}
+
+AOE_COOLDOWN = 5.0
+AOE_WARNING_TIME = 0.75
+
+
 UPGRADES = (
     ("RAPID FIRE", "LOWER SHOT COOLDOWN", 2),
     ("BULLET SPEED", "FASTER PROJECTILES", 7),
@@ -90,6 +175,7 @@ class ArenaGame:
         self.rng = random.Random(seed)
         self.environment_ready = False
         self.effects = []
+        self.aoe_pulses = []
         self.enemies = {}
         self.bullets = {}
         self.overlay_ids = []
@@ -121,7 +207,8 @@ class ArenaGame:
 
     def reset(self):
         for batch in (
-            "actors", "effects", "projectiles", "ui_overlay",
+            "actors", "late_enemies", "effects", "area_effects",
+            "projectiles", "ui_overlay",
             "upgrade_icons", "ui_text",
         ):
             if batch in self.state.batches:
@@ -129,6 +216,7 @@ class ArenaGame:
         self.font.groups.clear()
         self.font.signatures.clear()
         self.effects = []
+        self.aoe_pulses = []
         self.enemies = {}
         self.bullets = {}
         self.overlay_ids = []
@@ -207,28 +295,69 @@ class ArenaGame:
             candidates.append(candidate)
         return max(candidates, key=lambda p: math.hypot(p[0] - self.player_x, p[1] - self.player_y))
 
-    def _spawn_enemy(self):
-        roll = self.rng.random()
+    def _choose_enemy_kind(self, roll):
+        if self.wave >= 21:
+            if roll < 0.10:
+                return "nova"
+            if roll < 0.18:
+                return "bulwark"
+            if roll < 0.32:
+                return "brute"
+            if roll < 0.58:
+                return "shooter"
+            return "chaser"
         if self.wave >= 4 and roll < 0.16:
-            kind, tile, size, speed, health = "brute", 6, 48.0, 72.0, 7 + self.wave
-        elif self.wave >= 2 and roll < 0.42:
-            kind, tile, size, speed, health = "shooter", 4, 38.0, 92.0, 2 + self.wave // 3
-        else:
-            kind, tile, size, speed, health = "chaser", 2, 38.0, 112.0 + self.wave * 4, 2 + self.wave // 3
-        x, y = self._edge_spawn(size / 2)
+            return "brute"
+        if self.wave >= 2 and roll < 0.42:
+            return "shooter"
+        return "chaser"
+
+    def _scaled_enemy_stat(self, base, growth, unlock_wave):
+        waves_active = max(0, self.wave - unlock_wave)
+        return int(math.ceil(base + growth * waves_active))
+
+    def _spawn_enemy(self, kind=None):
+        kind = kind or self._choose_enemy_kind(self.rng.random())
+        profile = ENEMY_PROFILES[kind]
+        health = self._scaled_enemy_stat(
+            profile.base_health, profile.health_growth, profile.unlock_wave
+        )
+        contact_damage = self._scaled_enemy_stat(
+            profile.base_contact_damage, profile.contact_growth, profile.unlock_wave
+        )
+        projectile_damage = self._scaled_enemy_stat(
+            profile.base_projectile_damage,
+            profile.projectile_growth,
+            profile.unlock_wave,
+        ) if profile.base_projectile_damage else 0
+        aoe_damage = self._scaled_enemy_stat(
+            profile.base_aoe_damage, profile.aoe_growth, profile.unlock_wave
+        ) if profile.base_aoe_damage else 0
+        speed = min(
+            profile.max_speed,
+            profile.base_speed
+            + profile.speed_growth * max(0, self.wave - profile.unlock_wave),
+        )
+        x, y = self._edge_spawn(profile.size / 2)
         dx, dy = self._direction(x, y, self.player_x, self.player_y)
         rotation = math.degrees(math.atan2(dy, dx))
         entity_id = self.state.spawn(
-            "actors", x=x, y=y, width=size, height=size,
-            rotation=rotation, tile_x=tile, a=100,
+            profile.batch, x=x, y=y, width=profile.size, height=profile.size,
+            rotation=rotation, tile_x=profile.base_tile, a=100,
         )
         telegraph_id = self.state.spawn(
-            "effects", x=x, y=y, width=size + 18, height=size + 18,
+            "effects", x=x, y=y, width=profile.size + 18, height=profile.size + 18,
             tile_x=4, a=255,
         )
         self.enemies[entity_id] = Enemy(
-            entity_id, kind, x, y, health, speed, size, 0.68,
-            telegraph_id, shot_timer=self.rng.uniform(0.7, 1.3),
+            entity_id=entity_id, kind=kind, x=x, y=y, health=health,
+            speed=speed, size=profile.size, spawn_timer=0.68,
+            telegraph_id=telegraph_id, base_tile=profile.base_tile,
+            contact_damage=contact_damage,
+            projectile_damage=projectile_damage, aoe_damage=aoe_damage,
+            aoe_size=profile.aoe_size, score=profile.score,
+            hitbox_scale=profile.hitbox_scale, animated=profile.animated,
+            shot_timer=self.rng.uniform(0.7, 1.3),
             strafe=self.rng.choice((-1.0, 1.0)),
         )
 
@@ -271,7 +400,24 @@ class ArenaGame:
 
     def _shoot_enemy(self, enemy):
         dx, dy = self._direction(enemy.x, enemy.y, self.player_x, self.player_y)
-        self._spawn_bullet(enemy.x + dx * 22, enemy.y + dy * 22, dx, dy, hostile=True, speed=265 + self.wave * 5)
+        self._spawn_bullet(
+            enemy.x + dx * 22, enemy.y + dy * 22, dx, dy,
+            hostile=True, damage=enemy.projectile_damage,
+            speed=265 + self.wave * 5,
+        )
+
+    def _spawn_aoe(self, enemy):
+        entity_id = self.state.spawn(
+            "area_effects", x=enemy.x, y=enemy.y,
+            width=enemy.aoe_size, height=enemy.aoe_size,
+            tile_x=0, a=180,
+        )
+        self.aoe_pulses.append(AoePulse(
+            entity_id=entity_id, owner_id=enemy.entity_id,
+            x=enemy.x, y=enemy.y, size=enemy.aoe_size,
+            damage=enemy.aoe_damage,
+            warning_left=AOE_WARNING_TIME,
+        ))
 
     def update(self, dt, controls):
         dt = min(dt, 0.05)
@@ -335,6 +481,7 @@ class ArenaGame:
 
         self._update_spawns(dt)
         self._update_enemies(dt)
+        self._update_aoe_pulses(dt)
         self._update_bullets(dt)
         self._update_effects(dt)
         self._update_wave(dt)
@@ -350,7 +497,7 @@ class ArenaGame:
             self.spawn_timer = max(0.22, 0.68 - self.wave * 0.025)
 
     def _enemy_hitbox(self, enemy):
-        hit_size = enemy.size * (0.68 if enemy.kind != "brute" else 0.76)
+        hit_size = enemy.size * enemy.hitbox_scale
         return self.collision.rect_record(enemy.x, enemy.y, hit_size, hit_size)
 
     def _player_hitbox(self):
@@ -385,6 +532,15 @@ class ArenaGame:
                     self._shoot_enemy(enemy)
                     enemy.shot_timer = max(0.62, 1.45 - self.wave * 0.035)
 
+            if enemy.aoe_damage:
+                enemy.aoe_timer -= dt
+                if not enemy.aoe_warning and enemy.aoe_timer <= AOE_WARNING_TIME:
+                    self._spawn_aoe(enemy)
+                    enemy.aoe_warning = True
+                if enemy.aoe_timer <= 0:
+                    enemy.aoe_timer += AOE_COOLDOWN
+                    enemy.aoe_warning = False
+
             separation_x = separation_y = 0.0
             for other in active_enemies:
                 if other.entity_id == enemy.entity_id:
@@ -404,14 +560,43 @@ class ArenaGame:
             enemy.x, enemy.y = self.collision.clamp_center(
                 enemy.x, enemy.y, enemy.size / 2, enemy.size / 2, ARENA_BOUNDS
             )
-            base_tile = {"chaser": 2, "shooter": 4, "brute": 6}[enemy.kind]
-            tile = base_tile + (1 if int(enemy.anim_timer * 6) % 2 else 0)
-            if enemy.kind == "brute":
-                tile = 6
+            tile = enemy.base_tile
+            if enemy.animated and int(enemy.anim_timer * 6) % 2:
+                tile += 1
             self.state.modify(enemy.entity_id, x=enemy.x, y=enemy.y, rotation=rotation, tile_x=tile)
 
             if self.invulnerable <= 0 and self.collision.rects_overlap(player_box, self._enemy_hitbox(enemy)):
-                self._damage_player(28 if enemy.kind == "brute" else 18)
+                self._damage_player(enemy.contact_damage)
+
+    def _update_aoe_pulses(self, dt):
+        player_box = self._player_hitbox()
+        for pulse in list(self.aoe_pulses):
+            pulse.life -= dt
+            pulse.warning_left -= dt
+            if pulse.life <= 0:
+                self.state.destroy(pulse.entity_id)
+                self.aoe_pulses.remove(pulse)
+                continue
+
+            if not pulse.hit and pulse.warning_left <= 0:
+                pulse.hit = True
+                area_box = self.collision.rect_record(
+                    pulse.x, pulse.y, pulse.size, pulse.size
+                )
+                if (
+                    self.invulnerable <= 0
+                    and self.collision.rects_overlap(player_box, area_box)
+                ):
+                    self._damage_player(pulse.damage)
+
+            if pulse.hit:
+                tile = 2 if pulse.life > 0.14 else 3
+                alpha = max(0, min(255, int(255 * pulse.life / 0.30)))
+            else:
+                warning_progress = 1.0 - pulse.warning_left / AOE_WARNING_TIME
+                tile = 0 if warning_progress < 0.5 else 1
+                alpha = 150 + int(105 * max(0.0, warning_progress))
+            self.state.modify(pulse.entity_id, tile_x=tile, a=alpha)
 
     def _update_bullets(self, dt):
         left, top, right, bottom = ARENA_BOUNDS
@@ -428,7 +613,7 @@ class ArenaGame:
                 if self.collision.point_hits_rect(bullet.x, bullet.y, player_box):
                     self._destroy_bullet(entity_id)
                     if self.invulnerable <= 0:
-                        self._damage_player(14)
+                        self._damage_player(bullet.damage)
                 continue
             for enemy_id, enemy in list(self.enemies.items()):
                 if enemy.spawn_timer > 0:
@@ -451,9 +636,13 @@ class ArenaGame:
             return
         if enemy.telegraph_id >= 0:
             self.state.destroy(enemy.telegraph_id)
+        for pulse in list(self.aoe_pulses):
+            if pulse.owner_id == entity_id:
+                self.state.destroy(pulse.entity_id)
+                self.aoe_pulses.remove(pulse)
         self.state.destroy(entity_id)
         self._spawn_effect(3, enemy.x, enemy.y, enemy.size, 0.28)
-        self.score += {"chaser": 100, "shooter": 175, "brute": 350}[enemy.kind]
+        self.score += enemy.score
 
     def _damage_player(self, damage):
         self.invulnerable = 0.72
@@ -495,11 +684,15 @@ class ArenaGame:
                 continue
             if name == "BULLET SPEED" and self.stats.bullet_speed >= 950:
                 continue
-            if name == "FLEET FOOT" and self.stats.move_speed >= 420:
+            if name == "FLEET FOOT" and self.stats.move_speed >= MAX_PLAYER_MOVE_SPEED:
                 continue
             if name == "PHASE DRIVE" and self.stats.dash_cooldown <= 0.52:
                 continue
-            if name == "MULTISHOT" and self.stats.projectiles >= 5:
+            if name == "ARMOR PLATE" and self.stats.max_health >= MAX_PLAYER_HEALTH:
+                continue
+            if name == "ENERGY SHIELD" and self.stats.shield_max >= MAX_PLAYER_SHIELDS:
+                continue
+            if name == "MULTISHOT" and self.stats.projectiles >= MAX_PLAYER_PROJECTILES:
                 continue
             result.append(upgrade)
         return result
@@ -546,16 +739,24 @@ class ArenaGame:
         elif name == "HEAVY ROUNDS":
             self.stats.damage += 1
         elif name == "FLEET FOOT":
-            self.stats.move_speed = min(430, self.stats.move_speed * 1.10)
+            self.stats.move_speed = min(
+                MAX_PLAYER_MOVE_SPEED, self.stats.move_speed * 1.10
+            )
         elif name == "PHASE DRIVE":
             self.stats.dash_cooldown = max(0.5, self.stats.dash_cooldown * 0.82)
         elif name == "ARMOR PLATE":
-            self.stats.max_health += 20
+            self.stats.max_health = min(
+                MAX_PLAYER_HEALTH, self.stats.max_health + 20
+            )
             self.stats.health = min(self.stats.max_health, self.stats.health + 30)
         elif name == "ENERGY SHIELD":
-            self.stats.shield_max += 1
+            self.stats.shield_max = min(
+                MAX_PLAYER_SHIELDS, self.stats.shield_max + 1
+            )
         elif name == "MULTISHOT":
-            self.stats.projectiles = min(5, self.stats.projectiles + 1)
+            self.stats.projectiles = min(
+                MAX_PLAYER_PROJECTILES, self.stats.projectiles + 1
+            )
 
         self.state.clear_batch("upgrade_icons")
         for entity_id in self.overlay_ids:
