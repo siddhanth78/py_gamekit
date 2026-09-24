@@ -1,6 +1,6 @@
 # Chrome Ember
 
-A top-down pixel-art arena shooter built with PygameKit.
+A top-down pixel-art arena shooter built with PyGameKit.
 
 ## Controls
 
@@ -15,5 +15,5 @@ A top-down pixel-art arena shooter built with PygameKit.
 Run from the toolkit root:
 
 ```bash
-python3 "New Project/main.py"
+python3 "2d-shooter/main.py"
 ```
