@@ -1,4 +1,4 @@
-# PygameKit: 2D Graphics Engine & Project Toolkit
+# PyGameKit: 2D Graphics Engine & Project Toolkit
 
 A pixel-native 2D rendering system built on ModernGL and Pygame, with multi-project workspace management, entity-based architecture, and deterministic PNG asset generation.
 
@@ -402,7 +402,7 @@ Auto-generated JSON file tracking project structure:
 
 ```json
 {
-  "tool": "PygameKit",
+  "tool": "PyGameKit",
   "schema_version": 1,
   "project_root": ".",
   "directories": ["shaders", "bitmap", "assets"],
@@ -537,7 +537,7 @@ game_state = GameState(ctx, rect_cap=10000, point_cap=5000, tex_cap=5000)
 ### "PNG generated with wrong colors"
 Colors must be 0.0–1.0 (OpenGL), not 0–255. Red = `[1.0, 0.0, 0.0, 1.0]`.
 
-### "Multiple PygameKit projects found"
+### "Multiple PyGameKit projects found"
 Move inactive projects outside the toolkit root, or bootstrap will ask which to activate.
 
 ---

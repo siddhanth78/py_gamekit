@@ -1,6 +1,6 @@
 # Repository Instructions
 
-This repository is the reusable **PygameKit** toolkit. Shared engine and
+This repository is the reusable **PyGameKit** toolkit. Shared engine and
 generation tools live at the repository root. Game-specific work belongs in the
 active project directory identified by a `.pygamekit-project` marker.
 

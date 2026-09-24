@@ -1,6 +1,6 @@
 ---
 name: png-bitmap-generator
-description: Create or modify deterministic pixel-art PNG assets in a marked PygameKit project using bitmap JSON and png_generator.py. Use for project sprites, atlases, textures, and other generated PNG artwork.
+description: Create or modify deterministic pixel-art PNG assets in a marked PyGameKit project using bitmap JSON and png_generator.py. Use for project sprites, atlases, textures, and other generated PNG artwork.
 ---
 
 # PNG Bitmap Generator

@@ -1,6 +1,6 @@
 ---
 name: game-builder
-description: Plan, build, debug, or modify games in a PygameKit project workspace identified by .pygamekit-project. Use for game mechanics, rendering, objects, shaders, collisions, updates, architecture, or game assets.
+description: Plan, build, debug, or modify games in a PyGameKit project workspace identified by .pygamekit-project. Use for game mechanics, rendering, objects, shaders, collisions, updates, architecture, or game assets.
 ---
 
 # Game Builder

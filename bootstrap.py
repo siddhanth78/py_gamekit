@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or discover an isolated PygameKit project workspace.
+"""Create or discover an isolated PyGameKit project workspace.
 
 The shared rendering and PNG tools stay beside this script. Game-specific code,
 bitmap specifications, and generated assets live in the directory marked by
@@ -550,7 +550,7 @@ def find_project_root(toolkit_root):
     if len(marked_projects) > 1:
         choices = "\n".join(f"  - {path}" for path in marked_projects)
         raise SystemExit(
-            "Multiple PygameKit projects were found. Move inactive projects "
+            "Multiple PyGameKit projects were found. Move inactive projects "
             f"outside the toolkit root or ask the user which one to use:\n{choices}"
         )
     if marked_projects:
@@ -594,7 +594,7 @@ def get_project_inventory(project_root):
 def update_project_marker(project_root):
     directories, files = get_project_inventory(project_root)
     manifest = {
-        "tool": "PygameKit",
+        "tool": "PyGameKit",
         "schema_version": 1,
         "project_root": ".",
         "directories": directories,
@@ -675,7 +675,7 @@ def bootstrap(toolkit_root=None, project_name=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PygameKit project directory management",
+        description="PyGameKit project directory management",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -714,7 +714,7 @@ Examples:
     if args.scan:
         projects = find_all_projects(toolkit_root)
         if not projects:
-            print("No PygameKit project directories found.")
+            print("No PyGameKit project directories found.")
             return
         
         print("=" * 60)
