@@ -14,11 +14,17 @@ before planning, inspecting project code, or creating files:
 python3 bootstrap.py
 ```
 
+Available bootstrap modes:
+- `python3 bootstrap.py` – discover the active project directory or create `New Project/`
+- `python3 bootstrap.py --new` – create a new project directory (interactive prompt)
+- `python3 bootstrap.py --scan` – list all existing marked project directories
+- `python3 bootstrap.py --exists <name>` – check if a project directory exists
+
 This is the one allowed filesystem change during planning. It is safe to run
 repeatedly because it never overwrites existing project files.
 
 Bootstrap discovers the active workspace by its `.pygamekit-project` marker. If
-no marked project exists, it creates `New Project/` as the initial workspace.
+no marked project directory exists, it creates `New Project/` as the initial workspace.
 Always use the project path printed by bootstrap and refer to it as
 `<project-root>`. Bootstrap creates:
 

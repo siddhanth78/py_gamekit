@@ -18,6 +18,12 @@ root:
 python3 bootstrap.py
 ```
 
+Available bootstrap modes:
+- `python3 bootstrap.py` – discover the active project directory or create `New Project/`
+- `python3 bootstrap.py --new` – create a new project directory (interactive prompt)
+- `python3 bootstrap.py --scan` – list all existing marked project directories
+- `python3 bootstrap.py --exists <name>` – check if a project directory exists
+
 The shared generator remains at `png_generator.py` in the toolkit root. All
 project-specific PNG work belongs in the workspace path printed by bootstrap,
 referred to below as `<project-root>`:

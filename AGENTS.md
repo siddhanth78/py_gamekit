@@ -43,8 +43,14 @@ required by those skills.
 
 ## Workspace Boundary
 
-- Run `python3 bootstrap.py` to discover or create the active project. Use the
-  project path printed by bootstrap; never assume its directory is still named
+- Run `python3 bootstrap.py` to discover or create the active project directory. 
+  Use these modes for specific operations:
+  - `python3 bootstrap.py` – discover or create the default project
+  - `python3 bootstrap.py --new` – create a new project directory (interactive)
+  - `python3 bootstrap.py --scan` – list all existing marked project directories
+  - `python3 bootstrap.py --exists <name>` – check if a project directory exists
+  
+  Use the project path printed by bootstrap; never assume its directory is still named
   `New Project/`.
 - The directory containing `.pygamekit-project` is `<project-root>`. The marker
   is a JSON inventory of all intentional directories and categorized code,
