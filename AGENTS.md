@@ -22,6 +22,25 @@ GL reference and then the PNG skill as relevant. After loading the required
 skills, the first action for a game or game-asset task is the bootstrap command
 required by those skills.
 
+## Game Implementation Authorization
+
+- Treat every game request as planning-only unless the user's current request
+  explicitly uses **"build"** or **"building"** as a complete word within a
+  direct instruction to create or modify the game. Qualifying examples include
+  "let's build the game" and "begin building it." The word need not appear by
+  itself or make up the entire request.
+- Synonyms such as "make," "create," "implement," "code," "start," or "work
+  on" do not authorize implementation. Discuss the idea, inspect the project,
+  and produce or refine a plan without changing game code or assets.
+- Merely quoting, describing, or asking about the words "build" or "building"
+  is not authorization. The word must be part of a direct instruction to build
+  the game (or a previously agreed game plan).
+- Authorization does not carry into a later task after the user returns to
+  planning or changes the subject. Require **"build"** or **"building"** again
+  before resuming game implementation.
+- Bootstrap remains the sole permitted filesystem change during planning, as
+  required by the game-builder skill.
+
 ## Workspace Boundary
 
 - Run `python3 bootstrap.py` to discover or create the active project. Use the

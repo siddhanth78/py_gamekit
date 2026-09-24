@@ -1,0 +1,36 @@
+{
+  "tool": "PygameKit",
+  "schema_version": 1,
+  "project_root": ".",
+  "directories": [
+    "assets",
+    "bitmap"
+  ],
+  "files": {
+    "code": [
+      "collision_manager.py",
+      "config.py",
+      "game.py",
+      "game_state.py",
+      "input_handler.py",
+      "main.py",
+      "pixel_font.py",
+      "test_game.py"
+    ],
+    "assets": [
+      "assets/actors-24.png",
+      "assets/effects-8.png",
+      "assets/environment-32.png",
+      "assets/ui-16.png"
+    ],
+    "bitmaps": [
+      "bitmap/actors-24.json",
+      "bitmap/effects-8.json",
+      "bitmap/environment-32.json",
+      "bitmap/ui-16.json"
+    ],
+    "other": [
+      "README.md"
+    ]
+  }
+}

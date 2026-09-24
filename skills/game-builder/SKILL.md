@@ -90,7 +90,19 @@ If documentation and existing code appear to disagree, call out the discrepancy 
 
 ## Planning Gate
 
-Treat game ideas, feature discussions, architecture discussions, and requests to plan as planning-only work.
+Treat every game request as planning-only work unless the user's current
+request explicitly uses **"build"** or **"building"** as a complete word within
+a direct instruction to create or modify the game (or execute a previously
+agreed game plan). Qualifying examples include "let's build the game" and
+"begin building it." The word need not appear by itself or make up the entire
+request.
+
+Do not infer implementation authority from intent, enthusiasm, or synonyms.
+Words and phrases such as "make," "create," "implement," "code," "start," "go
+ahead," or "let's do it" do not pass this gate. A mention that merely quotes,
+discusses, negates, or asks about "build" or "building" also does not pass it.
+When the gate is not passed, remain in planning even if the request otherwise
+sounds actionable.
 
 During planning:
 * Read the GL reference skill and any other relevant project files.
@@ -101,13 +113,15 @@ During planning:
 
 A plan must identify the specific documented APIs or systems that the eventual implementation will use.
 
-Begin implementation **only** after the user explicitly says **"let's build it"** or gives equivalent direct authorization to implement the agreed plan.
+Begin implementation only when the explicit **"build"** / **"building"** gate
+above is satisfied. There is no equivalent wording.
 
 Implementation authorization permits changes only within the scope of the agreed plan unless the user explicitly expands that scope.
 
 ## Implementation
 
-Once implementation is authorized:
+Once implementation is authorized by a qualifying **"build"** or
+**"building"** instruction:
 1. Re-check that bootstrap ran at the start of the task.
 2. Re-read or re-check the relevant sections of the GL reference skill.
 3. Inspect the generated boilerplate and other affected files in `<project-root>/`.
@@ -129,4 +143,5 @@ Do not rely on remembered versions of the documentation. The files currently pre
 
 If the user asks to go back to planning, return immediately to planning-only work and stop making game changes.
 * Any earlier implementation authorization is immediately revoked.
-* Require fresh, explicit authorization before resuming implementation.
+* Require a fresh qualifying **"build"** or **"building"** instruction before
+  resuming implementation.

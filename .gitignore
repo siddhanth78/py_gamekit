@@ -1,3 +1,4 @@
 *pycache*
 *.pyc
 .DS_Store
+.ruff_cache
