@@ -2,3 +2,6 @@
 *.pyc
 .DS_Store
 .ruff_cache
+dist/
+build/
+.pygamekit-build/

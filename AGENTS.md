@@ -16,11 +16,13 @@ Read every selected `SKILL.md` completely before taking task actions.
 - For creating or modifying PNG sprites, atlases, textures, bitmap JSON, or
   other generated PNG artwork, also use
   `skills/png-bitmap-generator/SKILL.md`.
+- For bundling, packaging, exporting, or shipping a marked game as a native
+  desktop release, also use `skills/game-bundler/SKILL.md`.
 
 When multiple skills apply, read the game-builder skill first, followed by the
-GL reference and then the PNG skill as relevant. After loading the required
-skills, the first action for a game or game-asset task is the bootstrap command
-required by those skills.
+game-bundler skill for packaging tasks, the GL reference, and then the PNG skill
+as relevant. After loading the required skills, the first action for a game or
+game-asset task is the bootstrap command required by those skills.
 
 ## Game Implementation Authorization
 
@@ -40,6 +42,22 @@ required by those skills.
   before resuming game implementation.
 - Bootstrap remains the sole permitted filesystem change during planning, as
   required by the game-builder skill.
+- A direct instruction to **bundle**, **package**, **export**, or **ship** a
+  game is a packaging operation rather than game implementation. It authorizes
+  the dependency installation, marker refresh, bundler execution, and `dist/`
+  output required by `skills/game-bundler/SKILL.md`, but does not authorize
+  changes to gameplay code, assets, or shared engine code.
+
+## Dependency Setup
+
+- Before implementing, running, testing, or bundling a game, install the shared
+  toolkit and packaging dependencies from the repository root with
+  `python3 -m pip install -r requirements.txt`. Run this at least once per
+  environment or session so required runtime, asset, and PyInstaller packages
+  are not missed.
+- Do not silently skip dependency installation because a package is missing or
+  a download is blocked. If sandbox or network restrictions prevent the install,
+  request the required approval and retry using the same command.
 
 ## Workspace Boundary
 

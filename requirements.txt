@@ -1,0 +1,5 @@
+pygame-ce==2.5.7
+moderngl==5.12.0
+numpy==1.26.4
+Pillow==11.0.0
+pyinstaller>=6.0,<7

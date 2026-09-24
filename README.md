@@ -11,7 +11,7 @@ A pixel-native 2D rendering system built on ModernGL and Pygame, with multi-proj
 ### 1. Install Dependencies
 
 ```bash
-pip install pygame moderngl numpy
+python3 -m pip install -r requirements.txt
 ```
 
 ### 2. Bootstrap Your First Project
@@ -62,6 +62,8 @@ pygamekit/                          # Toolkit root
 ├── gl_utils.py                     # Core rendering helper (shared)
 ├── png_generator.py                # PNG asset generator (shared)
 ├── bootstrap.py                    # Project workspace manager
+├── bundle_game.py                  # Native desktop bundle exporter
+├── requirements.txt                # Runtime, asset, and bundle dependencies
 ├── shaders/                        # Shared shader files (used by all projects)
 │   ├── rect.vert / rect.frag
 │   ├── point.vert / point.frag
@@ -71,8 +73,10 @@ pygamekit/                          # Toolkit root
 │   │   └── SKILL.md                # Game development workflow
 │   ├── gl-utils-reference/
 │   │   └── SKILL.md                # Rendering API reference
-│   └── png-bitmap-generator/
-│       └── SKILL.md                # PNG asset generation
+│   ├── png-bitmap-generator/
+│   │   └── SKILL.md                # PNG asset generation
+│   └── game-bundler/
+│       └── SKILL.md                # Native release packaging workflow
 │
 ├── MyGame/                         # Project 1 (marked with .pygamekit-project)
 │   ├── .pygamekit-project          # Project marker (JSON manifest)
@@ -123,6 +127,45 @@ This generates:
 
 ---
 
+## Shipping a Game
+
+PyGameKit can package a marked project, its generated assets, the shared
+`gl_utils.py` module, and the shared shaders into a native desktop application.
+Install the build dependency in the same Python environment as the game:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+Validate the active project and preview the command without building:
+
+```bash
+python3 bundle_game.py --dry-run
+```
+
+Build the recommended one-folder release:
+
+```bash
+python3 bundle_game.py
+```
+
+Build a single-file release after the one-folder build has been tested:
+
+```bash
+python3 bundle_game.py --onefile
+```
+
+Useful options include `--project PATH`, `--name NAME`, `--icon PATH`,
+`--console`, `--dist-dir PATH`, `--include-bitmaps`, and repeatable
+`--hidden-import MODULE`. Output defaults to `dist/` at the toolkit root.
+
+PyInstaller creates an application for the host operating system. Run the
+bundler on Windows to produce an `.exe`, on macOS for a macOS build, and on
+Linux for a Linux build. The shipped application does not require a separate
+Python installation.
+
+---
+
 ## Using with LLM Agents (Skills)
 
 Each skill file defines a reusable workflow for agents.
@@ -134,13 +177,15 @@ Each skill file defines a reusable workflow for agents.
 | **game-builder** | `skills/game-builder/SKILL.md` | Plan, build, debug any game feature |
 | **gl-utils-reference** | `skills/gl-utils-reference/SKILL.md` | Rendering, shaders, buffers, collision |
 | **png-bitmap-generator** | `skills/png-bitmap-generator/SKILL.md` | Create PNG sprites from JSON |
+| **game-bundler** | `skills/game-bundler/SKILL.md` | Package and ship native game releases |
 
 ### Skill Routing for Agents
 
 **Always read in this order:**
 1. `skills/game-builder/SKILL.md` – first, for all game tasks
-2. `skills/gl-utils-reference/SKILL.md` – if rendering/collision is involved
-3. `skills/png-bitmap-generator/SKILL.md` – if creating PNG assets
+2. `skills/game-bundler/SKILL.md` – if packaging or shipping a game
+3. `skills/gl-utils-reference/SKILL.md` – if rendering/collision is involved
+4. `skills/png-bitmap-generator/SKILL.md` – if creating PNG assets
 
 ### Game Implementation Authorization
 
