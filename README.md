@@ -164,6 +164,79 @@ bundler on Windows to produce an `.exe`, on macOS for a macOS build, and on
 Linux for a Linux build. The shipped application does not require a separate
 Python installation.
 
+### Cross-Platform Bundling with GitHub Actions
+
+To automate native builds for Windows, macOS, and Linux, use GitHub Actions.
+
+#### 1. Create `.github/workflows/build.yml`
+
+At the toolkit root, create this file:
+
+```yaml
+name: Cross-Platform Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Project name (or leave empty for active project)'
+        required: false
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: .exe
+          - os: macos-latest
+            artifact: .app
+          - os: ubuntu-latest
+            artifact: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: python3 -m pip install -r requirements.txt
+      
+      - name: Build
+        run: python3 bundle_game.py ${{ github.event.inputs.project && format('--project {0}', github.event.inputs.project) || '' }}
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-${{ matrix.os }}
+          path: dist/
+```
+
+#### 2. Push and tag
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub will automatically build on all three platforms and store artifacts.
+
+#### 3. Manual trigger (optional)
+
+In GitHub UI: **Actions** → **Cross-Platform Build** → **Run workflow** → enter project name → **Run**.
+
+#### Outputs
+
+- `build-windows-latest/` – `.exe` and `.msi` (if configured)
+- `build-macos-latest/` – `.app` and `.dmg`
+- `build-ubuntu-latest/` – AppImage or statically-linked binary
+
+No Docker or local multi-OS setup needed, GitHub runners handle it.
+
 ---
 
 ## Using with LLM Agents (Skills)
