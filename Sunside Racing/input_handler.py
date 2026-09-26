@@ -23,10 +23,16 @@ class InputHandler:
                     intents.append(("interact", None))
                 elif event.key == pygame.K_q:
                     intents.append(("call_car", None))
+                elif event.key == pygame.K_t:
+                    intents.append(("island", None))
                 elif event.key in (pygame.K_UP, pygame.K_w):
                     intents.append(("menu_up", None))
                 elif event.key in (pygame.K_DOWN, pygame.K_s):
                     intents.append(("menu_down", None))
+                elif event.key in (pygame.K_LEFT, pygame.K_a):
+                    intents.append(("menu_left", None))
+                elif event.key in (pygame.K_RIGHT, pygame.K_d):
+                    intents.append(("menu_right", None))
                 elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                     intents.append(("confirm", None))
             elif event.type == pygame.MOUSEMOTION:

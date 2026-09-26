@@ -71,6 +71,28 @@ class PauseMenuInputTests(unittest.TestCase):
         self.assertLess(cy, sy)                             # Buttons sit on their rows.
         self.assertEqual(menu.handle("click", (sx, sy)), "travel:snow")
 
+    def test_give_up_option_matches_what_is_ongoing(self):
+        menu = self.menu()
+        self.assertEqual(menu.items, ("resume", "mastery", "help", "exit"))
+        menu.set_ongoing("mission")
+        self.assertEqual(menu.items, ("resume", "abort", "mastery", "help", "exit"))
+        menu.set_ongoing("race")
+        self.assertEqual(menu.items, ("resume", "quit_race", "mastery", "help", "exit"))
+        menu.selected = menu.items.index("quit_race")
+        self.assertEqual(menu.handle("confirm", None), "quit_race")
+        menu.selected = menu.items.index("help")
+        menu.set_ongoing(None)                      # Race ended: Help stays selected.
+        self.assertEqual(menu.items[menu.selected], "help")
+        centers = menu._button_centers()
+        self.assertEqual(len(centers), 4)
+        menu.set_ongoing("mission")
+        self.assertEqual(len(menu._button_centers()), 5)
+        self.assertLess(menu._button_centers()[0][1], centers[0][1])  # Column stays centered.
+        menu.selected = menu.items.index("help")
+        menu.handle("confirm", None)
+        menu.handle("pause", None)                  # Back from Help lands on Help.
+        self.assertEqual(menu.items[menu.selected], "help")
+
     def test_selection_survives_rows_arriving_after_the_page_opens(self):
         menu = self.menu()
         menu.cells = []                                     # No GL text cells in this test.

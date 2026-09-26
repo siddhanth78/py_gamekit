@@ -1,0 +1,203 @@
+"""Whole-game flows driven by real key events (needs an OpenGL window; skipped without one)."""
+
+import json
+import math
+import shutil
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+TOOLKIT_ROOT = PROJECT_ROOT.parent
+if str(TOOLKIT_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLKIT_ROOT))
+
+import pygame
+
+import main
+import player_save
+import world_save
+from missions import Offer
+from walker import Walker
+
+
+class GameFlowTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.folder = folder = Path(cls.temp.name)
+        cls.patches = (main.PlayerSave, main.WorldStore)
+        main.PlayerSave = lambda: player_save.PlayerSave(folder / "player.json")
+        main.WorldStore = lambda path: world_save.WorldStore(folder / "world.json")
+        try:
+            import moderngl
+            pygame.init()
+            for attr, value in ((pygame.GL_CONTEXT_MAJOR_VERSION, 3), (pygame.GL_CONTEXT_MINOR_VERSION, 3),
+                                (pygame.GL_CONTEXT_PROFILE_MASK, pygame.GL_CONTEXT_PROFILE_CORE)):
+                pygame.display.gl_set_attribute(attr, value)
+            pygame.display.set_mode((1280, 720), pygame.OPENGL | pygame.DOUBLEBUF | pygame.HIDDEN)
+            cls.ctx = moderngl.create_context()
+        except Exception as exc:  # No display or GL: nothing to drive.
+            raise unittest.SkipTest(f"OpenGL window unavailable: {exc}")
+
+    @classmethod
+    def tearDownClass(cls):
+        main.PlayerSave, main.WorldStore = cls.patches
+        pygame.quit()
+        cls.temp.cleanup()
+
+    def setUp(self):
+        # Fresh saves for every test: autosaves from one test must not leak into the next.
+        if (PROJECT_ROOT / "world.json").exists():
+            shutil.copy(PROJECT_ROOT / "world.json", self.folder / "world.json")
+        (self.folder / "player.json").write_text(json.dumps(
+            {"version": 2, "mode": "drive", "car": {"x": 13600, "y": 16160, "heading": 0}}))
+        self.game = main.Game(self.ctx)
+        self.game.inputs.driving = lambda: (0, 0, False)
+
+    def press(self, *keys):
+        for key in keys:
+            pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=key, mod=0, unicode="", scancode=0))
+            pygame.event.post(pygame.event.Event(pygame.KEYUP, key=key, mod=0, unicode="", scancode=0))
+            for action, value in self.game.inputs.handle_events():
+                self.game.handle(action, value)
+            self.game.update(1 / 60)
+            self.game.render()
+
+    def test_quitting_a_center_race_returns_to_the_center(self):
+        g = self.game
+        cx, cy = g.missions.center_position("city")
+        g._step_out(Walker(cx, cy + 110))
+        self.press(pygame.K_e, pygame.K_RETURN)               # Accept race 1.
+        self.assertIsNotNone(g.race)
+        # Pause, move to QUIT RACE, choose it, move to QUIT, confirm, dismiss the result.
+        self.press(pygame.K_ESCAPE, pygame.K_DOWN, pygame.K_RETURN, pygame.K_UP, pygame.K_RETURN)
+        self.assertIsNone(g.race)
+        self.assertEqual(g.panel.title.text, "City Racing Center")
+        self.press(pygame.K_RETURN)
+        for _ in range(60):
+            g.update(1 / 60)
+        self.assertIsNone(g.race)                            # No surprise restart.
+        self.assertEqual(g.missions.progress.races["city"], 0)
+        self.assertLess(math.dist((g.walker.x, g.walker.y), (cx, cy)), 250)
+
+    def test_left_and_right_pick_the_confirm_buttons(self):
+        g = self.game
+        cx, cy = g.missions.center_position("city")
+        g._step_out(Walker(cx, cy + 110))
+        self.press(pygame.K_e, pygame.K_RETURN, pygame.K_ESCAPE, pygame.K_DOWN, pygame.K_RETURN)
+        self.assertEqual(g.panel.selected, 1)                     # KEEP RACING by default.
+        self.press(pygame.K_LEFT)
+        self.assertEqual(g.panel.selected, 0)                     # QUIT.
+        self.press(pygame.K_LEFT)
+        self.assertEqual(g.panel.selected, 0)                     # Stays at the left edge.
+        self.press(pygame.K_d, pygame.K_a, pygame.K_RIGHT)        # A/D work too; back to KEEP RACING.
+        self.assertEqual(g.panel.selected, 1)
+        self.press(pygame.K_LEFT, pygame.K_RETURN)                # Quit.
+        self.assertIsNone(g.race)
+        self.assertEqual(g.panel.title.text, "City Racing Center")
+
+    def test_declining_the_quit_keeps_racing(self):
+        g = self.game
+        cx, cy = g.missions.center_position("city")
+        g._step_out(Walker(cx, cy + 110))
+        self.press(pygame.K_e, pygame.K_RETURN, pygame.K_ESCAPE, pygame.K_DOWN, pygame.K_RETURN)
+        self.press(pygame.K_ESCAPE)                           # Esc on the confirm = keep racing.
+        self.assertIsNotNone(g.race)
+        self.assertFalse(g.panel.open)
+
+    def test_aborting_a_delivery_with_keys(self):
+        g = self.game
+        giver = g.missions.by_id["city-delivery"]
+        g._step_out(Walker(giver.x + 20, giver.y))
+        g.missions.offers[giver.id] = Offer(giver.id, "delivery", 1.0, (giver.x + 3000, giver.y))
+        self.press(pygame.K_e, pygame.K_DOWN, pygame.K_UP, pygame.K_RETURN)  # Wiggle, then accept.
+        self.assertIsNotNone(g.missions.active)
+        self.press(pygame.K_ESCAPE, pygame.K_DOWN, pygame.K_RETURN, pygame.K_UP, pygame.K_RETURN)
+        self.assertIsNone(g.missions.active)
+        self.assertIn(giver.id, g.missions.offers)
+        self.assertEqual(g.panel.chip_name, "Failed")
+
+    def test_a_lost_drag_race_fails_its_mission_at_once(self):
+        g = self.game
+        dg = g.missions.by_id["city-drag"]
+        g._step_out(Walker(dg.x + 20, dg.y))
+        g.missions.offers[dg.id] = Offer(dg.id, "drag", 1.25, None, {"kind": "straight", "theme": "city"}, 5)
+        self.press(pygame.K_e, pygame.K_RETURN)
+        while g.race and not g.race.result:          # Don't drive: the rival wins.
+            g.update(1 / 60)
+        self.assertIsNone(g.race)                     # No lingering "YOU LOSE" level.
+        self.assertIsNone(g.missions.active)          # The mission is failed, not ongoing.
+        self.assertEqual(g.panel.chip_name, "Failed")
+        self.press(pygame.K_RETURN, pygame.K_ESCAPE)
+        self.assertNotIn("abort", g.menu.items)
+        self.assertNotIn("quit_race", g.menu.items)
+
+    def test_pausing_during_a_win_cannot_turn_it_into_a_loss(self):
+        g = self.game
+        cx, cy = g.missions.center_position("city")
+        g._step_out(Walker(cx, cy + 110))
+        self.press(pygame.K_e, pygame.K_RETURN)
+        g.race.times["player"], g.race.result = 60.0, "win"   # Just crossed the line first.
+        self.press(pygame.K_ESCAPE)
+        self.assertNotIn("quit_race", g.menu.items)
+        self.press(pygame.K_ESCAPE)                            # Resume; the banner finishes.
+        for _ in range(int(main.RACE_OVER_DELAY * 60) + 5):
+            g.update(1 / 60)
+        self.assertIsNone(g.race)
+        self.assertEqual(g.missions.progress.races["city"], 1)
+
+    def reload(self):
+        """Save and start a fresh game from the saved files, as if relaunched."""
+        self.game.save()
+        self.game = main.Game(self.ctx)
+        self.game.inputs.driving = lambda: (0, 0, False)
+        return self.game
+
+    def test_quitting_the_game_mid_mission_returns_to_the_giver(self):
+        g = self.game
+        giver = g.missions.by_id["city-delivery"]
+        g._step_out(Walker(giver.x + 20, giver.y))
+        g.missions.offers[giver.id] = Offer(giver.id, "delivery", 1.0, (giver.x + 3000, giver.y))
+        self.press(pygame.K_e, pygame.K_RETURN)
+        g.walker.x += 900                                  # Wander far off mid-delivery.
+        g = self.reload()
+        self.assertIsNone(g.missions.active)               # Quit, not resumed.
+        self.assertIsNone(g.missions.status())
+        self.assertIsNotNone(g.walker)
+        self.assertLess(math.dist((g.walker.x, g.walker.y), (giver.x, giver.y)), 80)
+        self.assertLess(math.dist((g.car.x, g.car.y), (giver.x, giver.y)), 400)
+        self.assertIn(giver.id, g.missions.offers)         # Same mission waits there.
+
+    def test_quitting_the_game_mid_race_returns_to_the_center(self):
+        g = self.game
+        cx, cy = g.missions.center_position("city")
+        g._step_out(Walker(cx, cy + 110))
+        self.press(pygame.K_e, pygame.K_RETURN)
+        for _ in range(240):
+            g.update(1 / 60)
+        g = self.reload()
+        self.assertIsNone(g.race)
+        self.assertEqual(g.missions.progress.races["city"], 0)
+        self.assertLess(math.dist((g.walker.x, g.walker.y), (cx, cy)), 250)
+
+    def test_autosave_mid_mission_saves_back_at_the_giver_without_interrupting(self):
+        g = self.game
+        giver = g.missions.by_id["city-speed"]
+        g._step_out(Walker(giver.x + 20, giver.y))
+        g.missions.offers[giver.id] = Offer(giver.id, "speed", 1.0, (giver.x + 3000, giver.y))
+        self.press(pygame.K_e, pygame.K_RETURN)
+        g.walker.x += 900
+        g._autosave()
+        g.world_store.wait()
+        self.assertIsNotNone(g.missions.active)            # Still running in this session.
+        self.assertGreater(math.dist((g.walker.x, g.walker.y), (giver.x, giver.y)), 800)
+        saved = json.loads((self.folder / "player.json").read_text())
+        self.assertEqual(saved["mode"], "walk")
+        self.assertLess(math.dist((saved["walker"]["x"], saved["walker"]["y"]), (giver.x, giver.y)), 80)
+        self.assertNotIn("queued", saved["missions"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -15,6 +15,9 @@ import random
 
 from car import ACCELERATION, BRAKING, SURFACES, Car
 from collision_manager import CollisionManager
+from progression import SPEED_PER_LEVEL
+from track_gen import generate
+from traffic import lane_path
 from world import TILE_SIZE, Sprite
 
 
@@ -61,7 +64,9 @@ def _cells_along(corners, closed):
 
 
 class TrackLevel:
-    def __init__(self, kind: str, theme: str, shape: int = 0, laps: int = 1):
+    def __init__(self, kind: str, theme: str, shape: int = 0, laps: int = 1,
+                 corners=None):
+        """corners: a generated circuit (track_gen); otherwise the fixed layout `shape`."""
         self.kind = kind
         self.surface = theme if theme in THEMES else "city"
         self.ground = THEMES[self.surface]
@@ -70,7 +75,7 @@ class TrackLevel:
             corners = [(0, 0), (STRAIGHT_LEAD + STRAIGHT_RACE_TILES + STRAIGHT_RUNOFF, 0)]
             self.closed = False
         else:
-            corners = list(CIRCUITS[shape % len(CIRCUITS)])
+            corners = list(corners or CIRCUITS[shape % len(CIRCUITS)])
             self.closed = True
         # Shift so the whole level (with margins) sits at positive coordinates.
         min_x = min(x for x, _ in corners) - MARGIN_TILES
@@ -209,49 +214,106 @@ class TrackLevel:
         return self.finish_x - self.start_x if not self.closed else self.lap_length * self.laps
 
 
-class Rival:
-    """Follows the centerline (inside lane): full throttle on straights, brakes for corners."""
+APEX = 84                     # A cut corner's apex: this far inside the centerline corner.
+CUT_REACH = 2 * APEX          # A cut is one straight diagonal (a 45-degree chamfer): leave
+                              # the centerline this far before the corner and rejoin this far
+                              # after, and the diagonal passes exactly through the apex.
 
-    def __init__(self, level: TrackLevel, scale: float, rng: random.Random, sprite: str | None = None):
+
+def _toward(point, other, distance):
+    """The point `distance` px from point in the direction of other."""
+    length = math.dist(point, other)
+    return (point[0] + (other[0] - point[0]) * distance / length,
+            point[1] + (other[1] - point[1]) * distance / length)
+
+
+def apex(prev, corner, following):
+    """Inside apex of a centerline corner (the tightest line a car can take through it)."""
+    (ax, ay), (px, py), (bx, by) = prev, corner, following
+    cross = (px - ax) * (by - py) - (py - ay) * (bx - px)  # > 0: a right turn (screen y down).
+    return lane_path([prev, corner, following], APEX if cross > 0 else -APEX)[1]
+
+
+def best_line_length(level: TrackLevel) -> float:
+    """Race distance on the ideal line: every corner cut at its apex."""
+    if not level.closed:
+        return level.race_length
+    pts, n = level.path, len(level.path)
+    apexes = [apex(pts[i - 1], pts[i], pts[(i + 1) % n]) for i in range(n)]
+    lap = sum(math.dist(apexes[i], apexes[(i + 1) % n]) for i in range(n))
+    return lap * level.laps
+
+
+class Rival:
+    """Drives a line fixed for the whole race: full throttle on straights, braking for
+    every corner. On 3-lap center races it cuts each corner with probability cut_chance
+    (seeded, so a race always plays out the same way); drag rivals never cut."""
+
+    def __init__(self, level: TrackLevel, scale: float, rng: random.Random,
+                 sprite: str | None = None, cut_chance: float = 0.0):
         self.level = level
         self.name = sprite or rng.choice(RIVALS)
-        # Scale the base car on this surface (not the player's upgrades: levels are the
-        # player's edge). Grip limits acceleration, braking, and cornering, as for the player.
-        grip, top = SURFACES[level.surface]
+        self.reaction = rng.uniform(0.2, 0.6)
+        self.set_scale(scale)
+        x, y, self.heading = level.start_pose(1)  # Starts in the right-hand grid slot.
+        points, self.cuts = [(x, y)], 0
+        brake_points = set()  # Indexes into points where the rival slows for a corner.
+        if level.closed:
+            pts, n = level.path, len(level.path)
+            # Merge from the grid slot onto the centerline right away (the first corner is
+            # at least 3 tiles ahead, and a cut leaves the centerline only 1.5 tiles early).
+            points.append((x + TILE_SIZE, pts[0][1]))
+            # One extra lap of path so the car never runs out of road before it finishes.
+            for _ in range(level.laps + 1):
+                for i in list(range(1, n)) + [0]:
+                    prev, corner, following = pts[i - 1], pts[i], pts[(i + 1) % n]
+                    if rng.random() < cut_chance:
+                        # Cut only the corner, in one diagonal through its apex; the rival
+                        # brakes where the diagonal begins and the straights stay central.
+                        self.cuts += 1
+                        brake_points.add(len(points))
+                        points.append(_toward(corner, prev, CUT_REACH))
+                        points.append(_toward(corner, following, CUT_REACH))
+                    else:
+                        brake_points.add(len(points))
+                        points.append(corner)
+            if points[2][0] <= points[1][0]:
+                # The first corner's cut begins before the merge point: steer straight for
+                # the diagonal instead of doubling back.
+                points.pop(1)
+                brake_points = {i - 1 for i in brake_points}
+        else:
+            points.append((level.finish_x + 8 * TILE_SIZE, y))
+        self.points = points
+        self.lengths = [math.dist(a, b) for a, b in zip(points, points[1:])]
+        # Distances along the path of every corner (a centerline corner or a cut apex).
+        self.corners, run = [], 0.0
+        for index, length in enumerate(self.lengths, start=1):
+            run += length
+            if index in brake_points:
+                self.corners.append(run)
+        self.distance, self.speed = 0.0, 0.0
+        self.x, self.y = x, y
+        self.progress = (level.progress_of(x, y, -1.5 * TILE_SIZE) if level.closed
+                         else x - level.start_x)
+
+    def set_scale(self, scale: float):
+        """Scale the base car on this surface (not the player's upgrades: levels are the
+        player's edge). Grip limits acceleration, braking, and cornering, as for the player."""
+        grip, top = SURFACES[self.level.surface]
+        self.scale = scale
         self.top = top * scale
         self.accel = ACCELERATION * grip * scale
         self.brake = BRAKING * 0.6 * grip * scale
         self.corner = CORNER_SPEED * grip * scale
-        self.reaction = rng.uniform(0.2, 0.6)
-        points = level.path + (level.path[:1] if level.closed else [])
-        self.points = points
-        self.lengths = [math.dist(a, b) for a, b in zip(points, points[1:])]
-        # Distances along the lap of the corners the AI brakes for. Circuits are
-        # rectilinear, so every vertex after the first (and the lap seam) is a corner.
-        self.corners = []
-        run = 0.0
-        for length in self.lengths[:-1] if not level.closed else self.lengths:
-            run += length
-            self.corners.append(run)
-        self.offset = level.start_x - level.path[0][0] - 1.5 * TILE_SIZE  # Start behind the line.
-        self.distance = self.offset
-        self.speed = 0.0
-        self.heading = level.start_pose(1)[2]
-        self.x, self.y = level.start_pose(1)[:2]
-        self.lane = 44  # Starts in the right lane and eases onto the centerline.
-
-    @property
-    def progress(self):
-        return self.distance - (self.level.start_x - self.level.path[0][0])
 
     def update(self, dt, clock):
         if clock < self.reaction:
             return
         target = self.top
-        lap = self.level.lap_length if self.level.closed else math.inf
         for corner in self.corners:
-            ahead = (corner - self.distance) % lap if self.level.closed else corner - self.distance
-            if 0 <= ahead:
+            ahead = corner - self.distance
+            if ahead >= 0:
                 if self.speed ** 2 - self.corner ** 2 > 2 * self.brake * max(ahead - 8, 0):
                     target = self.corner
                 break
@@ -260,18 +322,19 @@ class Rival:
         else:
             self.speed = max(target, self.speed - self.brake * dt)
         self.distance += self.speed * dt
-        self.lane = max(0.0, self.lane - 30 * dt)
         self._place(dt)
+        # Race progress is measured on the centerline, exactly like the player's.
+        self.progress = self.level.progress_of(self.x, self.y, self.progress)
 
     def _place(self, dt):
-        run = self.distance % self.level.lap_length if self.level.closed else self.distance
-        for (a, b), length in zip(zip(self.points, self.points[1:]), self.lengths):
-            if run <= length or (a, b) == (self.points[-2], self.points[-1]):
-                t = run / length
-                fx, fy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
-                self.x = a[0] + (b[0] - a[0]) * t - fy * self.lane
-                self.y = a[1] + (b[1] - a[1]) * t + fx * self.lane
-                target = math.degrees(math.atan2(fx, -fy)) % 360
+        run = self.distance
+        last = len(self.lengths) - 1
+        # Corners repeat every lap, so the final segment is found by index, not by point.
+        for i, ((a, b), length) in enumerate(zip(zip(self.points, self.points[1:]), self.lengths)):
+            if run <= length or i == last:
+                t = min(1.0, run / length)
+                self.x, self.y = a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
+                target = math.degrees(math.atan2(b[0] - a[0], -(b[1] - a[1]))) % 360
                 turn = (target - self.heading + 180) % 360 - 180
                 step = AI_TURN_RATE * dt
                 self.heading = (self.heading + max(-step, min(step, turn))) % 360
@@ -282,18 +345,74 @@ class Rival:
         return Sprite("vehicle-atlas", self.name, self.x, self.y, 64, 64, -self.heading, 24, 44)
 
 
+def level_multiplier(region_level: int) -> float:
+    return 1 + SPEED_PER_LEVEL * (region_level - 1)
+
+
+def flawless_time(level: TrackLevel, region_level: int = 1, multiplier: float | None = None) -> float:
+    """Race time of a flawless player: flat out on the ideal line (every corner cut),
+    at region_level (or a given top-speed multiplier)."""
+    grip, top = SURFACES[level.surface]
+    speed = top * (multiplier if multiplier is not None else level_multiplier(region_level))
+    accel = ACCELERATION * grip
+    distance = best_line_length(level) + 1.5 * TILE_SIZE  # Grid slot is behind the line.
+    return speed / accel + (distance - speed * speed / (2 * accel)) / speed
+
+
+def rival_time(level: TrackLevel, rival_seed: int, cut_chance: float, scale: float = 1.0) -> float:
+    """Seconds this exact rival (same seeded line) needs at this scale, ignoring reaction."""
+    rival = Rival(level, scale, random.Random(rival_seed), cut_chance=cut_chance)
+    seconds, dt = 0.0, 1 / 60  # The game's rate; near level 20 one level is only ~2% speed.
+    while rival.progress < level.race_length:
+        rival.update(dt, rival.reaction)
+        seconds += dt
+        if seconds > 1200:  # Twenty minutes: the rival is stuck, not slow.
+            raise RuntimeError("rival never finished the calibration run")
+    return seconds
+
+
+def calibrated_scale(level: TrackLevel, multiplier: float, rival_seed: int,
+                     cut_chance: float = 0.0, margin: float = 1.0) -> float:
+    """Rival scale at which a flawless player with this top-speed multiplier wins by margin.
+
+    Race time falls roughly as 1 / scale, but not exactly (acceleration and braking also
+    scale), so start from that estimate and correct it with a few runs of the same
+    seeded rival until it lands within 0.02 s of the target."""
+    target = flawless_time(level, multiplier=multiplier) * margin
+    scale = rival_time(level, rival_seed, cut_chance) / target
+    for _ in range(6):
+        seconds = rival_time(level, rival_seed, cut_chance, scale)
+        if abs(seconds - target) < 0.02:
+            break
+        scale *= seconds / target
+    return round(scale, 4)
+
+
 class DragRace:
     """One race: countdown, both racers go, first across the finish wins."""
 
-    def __init__(self, track: dict, scale: float, speed_scale: float, seed: int,
+    def __init__(self, track: dict, scale: float | None, speed_scale: float, seed: int,
                  rival_sprite: str | None = None):
         rng = random.Random(seed)
+        corners = (generate(track["seed"], track.get("size", 5))
+                   if track["kind"] == "circuit" and "seed" in track else None)
         self.level = TrackLevel(track["kind"], track.get("theme", "city"), track.get("shape", 0),
-                                track.get("laps", 1))
+                                track.get("laps", 1), corners)
         self.speed_scale = speed_scale
         x, y, heading = self.level.start_pose(-1)
         self.car = Car(x=x, y=y, heading=heading)
-        self.rival = Rival(self.level, scale, rng, rival_sprite)
+        cut_chance = track.get("cut_chance", 0.0)  # Only racing-center rivals cut corners.
+        rival_seed = rng.randrange(1 << 30)
+        if self.level.closed:
+            if scale is None:
+                # Center race: a flawless driver at target_level, on the ideal line, just wins.
+                multiplier, margin = level_multiplier(track["target_level"]), 1.005
+            else:
+                # Drag circuit: the offer's scale means "a flawless s x stock car on the ideal
+                # line", the same meaning it has on a straight.
+                multiplier, margin = scale, 1.0
+            scale = calibrated_scale(self.level, multiplier, rival_seed, cut_chance, margin)
+        self.rival = Rival(self.level, scale, random.Random(rival_seed), rival_sprite, cut_chance)
         self.collisions = CollisionManager(None, self.level)
         self.clock = -COUNTDOWN     # Negative while counting down.
         self.player_progress = self.level.progress_of(x, y, -1.5 * TILE_SIZE) \

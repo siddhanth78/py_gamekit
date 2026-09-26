@@ -125,6 +125,16 @@ class InWorldMissionTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn(giver.id, missions.offers)        # Same offer kept for a retry.
 
+    def test_aborting_fails_the_mission_and_keeps_the_offer(self):
+        missions, giver = self.start("city-delivery", 1.0)
+        offer = missions.offers[giver.id]
+        result = missions.abort()
+        self.assertFalse(result["success"])
+        self.assertEqual((result["mastery"], result["giver"]), (0, giver))
+        self.assertIsNone(missions.active)
+        self.assertIs(missions.offers[giver.id], offer)   # Same mission to retry.
+        self.assertEqual(missions.progress.completed["city"]["delivery"], 0)
+
     def test_speed_check_clock_starts_when_driving(self):
         missions, giver = self.start("city-speed", 1.0)
         limit = missions.active.time_limit
@@ -164,21 +174,26 @@ class InWorldMissionTests(unittest.TestCase):
         self.assertEqual(rows["desert"]["mission"], "Ongoing  ·  Delivery")
         restored = Missions(self.world, self.world.seed, json.loads(json.dumps(missions.to_dict())))
         rows = {row["region"]: row for row in restored.mastery_rows()}
-        self.assertEqual(rows["desert"]["mission"], "Queued  ·  Delivery")
+        self.assertEqual(rows["desert"]["mission"], "")          # Ongoing missions aren't saved.
         self.assertEqual(rows["city"]["completed"]["speed"], 1)  # Completions are saved.
 
-    def test_ongoing_mission_is_saved_as_queued_and_restarts(self):
+    def test_an_ongoing_mission_is_never_saved_and_its_offer_stays(self):
         missions, giver = self.start("city-speed", 1.0)
+        offer = missions.offers[giver.id]
         missions.update(3.0, giver.x, giver.y, True, True, False)
         data = json.loads(json.dumps(missions.to_dict()))
-        self.assertEqual(data["queued"], giver.id)
+        self.assertNotIn("queued", data)
         restored = Missions(self.world, self.world.seed, data)
         self.assertIsNone(restored.active)
-        self.assertEqual(restored.queued, giver.id)
-        self.assertEqual(restored.target(), (giver.x, giver.y))
+        self.assertIsNone(restored.status())
+        self.assertEqual(restored.offers[giver.id].to_dict(), offer.to_dict())  # Same mission.
         restored.accept(restored.by_id[giver.id])
-        self.assertIsNone(restored.queued)
         self.assertEqual(restored.active.time_left, restored.active.time_limit)  # Fresh clock.
+
+    def test_old_saves_with_a_queued_mission_load_without_it(self):
+        missions = Missions(self.world, self.world.seed, {"queued": "city-drag", "offers": {}})
+        self.assertIsNone(missions.active)
+        self.assertFalse(hasattr(missions, "queued"))
 
     def test_player_save_keeps_missions(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -189,7 +204,8 @@ class InWorldMissionTests(unittest.TestCase):
             store.load_state(CollisionManager(None, self.world))
             restored = Missions(self.world, self.world.seed, store.missions_data)
             self.assertEqual(restored.progress.levels["snow"], 3)
-            self.assertEqual(restored.queued, giver.id)
+            self.assertIsNone(restored.active)
+            self.assertIn(giver.id, restored.offers)
 
 
 class FastTravelTests(unittest.TestCase):

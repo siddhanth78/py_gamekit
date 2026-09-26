@@ -9,6 +9,8 @@ SPEED_PER_LEVEL = 0.04   # +4% top speed in a region per level above 1.
 HARDER_LEVEL = 5         # Harder mission givers appear from this level.
 HARDER_MULTIPLIER = 2
 FAST_TRAVEL_LEVEL = 3    # Reaching this level lets the player fast travel to the region.
+CENTER_RACES = 10        # Races at each region's racing center.
+ISLAND_LEVEL = 25        # With every center complete, one region at this level opens the island.
 
 
 def mastery_to_next(level: int) -> int:
@@ -28,11 +30,15 @@ class Progress:
         self.levels = {region: 1 for region in REGIONS}
         self.mastery = {region: 0 for region in REGIONS}  # Toward the next level.
         self.completed = {region: {kind: 0 for kind in MISSION_TYPES} for region in REGIONS}
+        self.races = {region: 0 for region in REGIONS}  # Center races won (0-10).
         for region, state in (data or {}).items():
             if region in REGIONS and isinstance(state, dict):
                 level, mastery = state.get("level"), state.get("mastery")
                 if type(level) is int and level >= 1 and type(mastery) is int and mastery >= 0:
                     self.levels[region], self.mastery[region] = level, mastery
+                races = state.get("races")  # Absent in saves from before racing centers.
+                if type(races) is int and 0 <= races <= CENTER_RACES:
+                    self.races[region] = races
                 done = state.get("completed")  # Absent in saves made before it was tracked.
                 if isinstance(done, dict):
                     for kind in MISSION_TYPES:
@@ -41,8 +47,20 @@ class Progress:
 
     def to_dict(self) -> dict:
         return {region: {"level": self.levels[region], "mastery": self.mastery[region],
-                         "completed": dict(self.completed[region])}
+                         "completed": dict(self.completed[region]), "races": self.races[region]}
                 for region in REGIONS}
+
+    def win_race(self, region: str) -> int:
+        """Record a center race win; returns races now won there."""
+        self.races[region] = min(CENTER_RACES, self.races[region] + 1)
+        return self.races[region]
+
+    def centers_done(self) -> int:
+        return sum(self.races[region] >= CENTER_RACES for region in REGIONS)
+
+    def island_unlocked(self) -> bool:
+        """Every center complete, and at least one region at ISLAND_LEVEL."""
+        return self.centers_done() == len(REGIONS) and max(self.levels.values()) >= ISLAND_LEVEL
 
     def record_completion(self, region: str, kind: str):
         self.completed[region][kind] += 1

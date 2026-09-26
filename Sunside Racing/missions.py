@@ -1,8 +1,9 @@
-"""Mission givers, offers, and in-world missions (delivery and speed check).
+"""Mission givers, offers, and in-world missions (delivery and time trial).
 
 Drag races are accepted here but run in drag_race.DragRace, a separate level; their
-result comes back through finish_drag(). Only one mission is ongoing at a time; on
-exit an ongoing mission is saved as queued and restarts when accepted again.
+result comes back through finish_drag(). At most one mission is ongoing. Ongoing missions
+are never saved: quitting the game quits the mission (the giver keeps its offer, and the
+save puts the player back at the giver), exactly like aborting it.
 """
 
 from __future__ import annotations
@@ -19,7 +20,8 @@ from world import CENTERS, SECTOR_SIZE, SECTORS, TILE_SIZE, Sprite
 
 
 TYPES = ("delivery", "speed", "drag")
-TITLES = {"delivery": "Delivery", "speed": "Speed Check", "drag": "Drag Race"}
+# The "speed" key is the time trial (it was once called the speed check); saves use the key.
+TITLES = {"delivery": "Delivery", "speed": "Time Trial", "drag": "Drag Race"}
 BASE_REWARD = {"delivery": 2, "speed": 1, "drag": 3}  # Delivery at 75+ points; 1 at 50+.
 DELIVERY_PENALTY = {"Easy": 5, "Medium": 10, "Hard": 15}
 DELIVERY_TIERS = ((75, 2), (50, 1))
@@ -103,7 +105,7 @@ class ActiveMission:
         self.flash = 0.0           # Seconds left on the "crash" flash.
         self.time_limit = time_limit
         self.time_left = time_limit
-        self.started = False       # Speed check: the clock starts once you drive off.
+        self.started = False       # Time trial: the clock starts once you drive off.
 
 
 class Missions:
@@ -124,8 +126,7 @@ class Missions:
                         self.offers[giver_id] = parsed
                 except (ValueError, TypeError):
                     pass
-        queued = data.get("queued")
-        self.queued = queued if queued in self.by_id else None
+        # Saves from before this revamp may hold a "queued" mission; it is ignored.
         self.active: ActiveMission | None = None
 
     # Placement ------------------------------------------------------------------
@@ -183,8 +184,10 @@ class Missions:
         seed = rng.randrange(1 << 30)
         if giver.type == "drag":
             kind = rng.choice(("straight", "circuit"))
-            return Offer(giver.id, "drag", scale, None,
-                         {"kind": kind, "shape": rng.randrange(3), "theme": giver.region}, seed)
+            track = {"kind": kind, "theme": giver.region}
+            if kind == "circuit":
+                track.update(seed=seed, size=rng.randint(4, 7))  # Its own generated layout.
+            return Offer(giver.id, "drag", scale, None, track, seed)
         low, high = DELIVERY_DISTANCE if giver.type == "delivery" else SPEED_DISTANCE
         collisions = CollisionManager(None, self.world)
         for _ in range(40):
@@ -250,7 +253,6 @@ class Missions:
     def accept(self, giver: Giver) -> Offer:
         """Start the giver's offer. Returns it; drag races are run by the caller."""
         offer = self.offer_for(giver)
-        self.queued = None
         limit = self.speed_limit(offer, (giver.x, giver.y)) if offer.type == "speed" else 0.0
         self.active = ActiveMission(offer, giver, limit)
         return offer
@@ -275,7 +277,7 @@ class Missions:
                 base = next((m for need, m in DELIVERY_TIERS if mission.points >= need), 0)
                 return self._finish(True, f"Delivered with {mission.points} points", base)
             return None
-        # Speed check.
+        # Time trial.
         if not mission.started and in_car and moving:
             mission.started = True
         if mission.started:
@@ -286,6 +288,10 @@ class Missions:
             if mission.time_left <= 0:
                 return self._finish(False, "Out of time")
         return None
+
+    def abort(self):
+        """Give up the ongoing mission: it counts as failed, and the offer stays for a retry."""
+        return self._finish(False, "You abandoned the mission")
 
     def finish_drag(self, won: bool, detail: str):
         return self._finish(won, detail, BASE_REWARD["drag"] if won else 0)
@@ -305,21 +311,12 @@ class Missions:
                 "progress": (self.progress.mastery[giver.region],
                              10 * self.progress.levels[giver.region])}
 
-    def abandon_to_queue(self):
-        """On exit, an ongoing mission waits at its giver to be restarted."""
-        if self.active:
-            self.queued = self.active.giver.id
-            self.active = None
-
     # Display ----------------------------------------------------------------------
 
     def target(self):
         """Where the guide arrow should point, or None to point at the racing center."""
         if self.active and self.active.offer.target:
             return self.active.offer.target
-        if self.queued:
-            giver = self.by_id[self.queued]
-            return giver.x, giver.y
         return None
 
     def status(self):
@@ -336,8 +333,6 @@ class Missions:
             else:
                 line = "Racing"
             return title, line
-        if self.queued:
-            return "QUEUED MISSION", f"Return to {self.by_id[self.queued].name}"
         return None
 
     def sprites(self, clock: float):
@@ -348,7 +343,7 @@ class Missions:
         for giver in self.visible_givers():
             kind = GIVER_KINDS[giver.region]
             out.append(Sprite("people-atlas", f"{kind}_idle", giver.x, giver.y, 32, 32, 180.0))
-            if not busy or self.queued == giver.id:
+            if not busy:
                 icon = f"icon_{giver.type}{'_hard' if giver.harder else ''}"
                 out.append(Sprite("marker-atlas", icon, giver.x, giver.y - 34 + bob, 32, 32))
         if self.active and self.active.offer.target:
@@ -369,8 +364,6 @@ class Missions:
             mission = ""
             if self.active and self.active.giver.region == region:
                 mission = f"Ongoing  ·  {TITLES[self.active.offer.type]}"
-            elif self.queued and self.by_id[self.queued].region == region:
-                mission = f"Queued  ·  {TITLES[self.by_id[self.queued].type]}"
             rows.append({
                 "region": region, "level": level,
                 "mastery": self.progress.mastery[region], "need": 10 * level,
@@ -378,17 +371,22 @@ class Missions:
                 "veterans": self.progress.harder_unlocked(region),
                 "completed": dict(self.progress.completed[region]),
                 "mission": mission,
+                "races": self.progress.races[region],
                 # ready / here / busy (a mission is running) / locked (below level 3).
                 "travel": ("locked" if level < FAST_TRAVEL_LEVEL else "here" if region == here
                            else "busy" if self.active else "ready"),
             })
         return rows
 
+    def center_position(self, region: str):
+        sector = next(sec for sec, name in CENTERS.items() if name == f"center_{region}")
+        return self.world.center_position(*sector)
+
     def giver_near(self, x, y):
         return next((g for g in self.visible_givers()
                      if math.dist((x, y), (g.x, g.y)) <= TALK_RANGE), None)
 
     def to_dict(self):
+        # The ongoing mission is deliberately absent: its offer stays with its giver.
         return {"progress": self.progress.to_dict(), "counter": self.counter,
-                "offers": {gid: offer.to_dict() for gid, offer in self.offers.items()},
-                "queued": self.active.giver.id if self.active else self.queued}
+                "offers": {gid: offer.to_dict() for gid, offer in self.offers.items()}}

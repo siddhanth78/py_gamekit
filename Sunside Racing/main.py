@@ -1,5 +1,6 @@
 """Sunside Racing: an open-world top-down racing game."""
 
+import dataclasses
 import math
 import sys
 from pathlib import Path
@@ -16,7 +17,7 @@ from autosave import Autosave
 from car import TOP_SPEED, Car
 from collision_manager import CollisionManager, nearest_clear_spot
 from drag_race import DragRace
-from fast_travel import destination
+from fast_travel import destination, island_destination, on_island, on_mainland_beach
 from game_state import GameState
 from hud import CenterArrow, Hud, compass
 from input_handler import InputHandler
@@ -24,6 +25,8 @@ from mission_ui import MissionPanel
 from missions import TITLES, Missions
 from parking import Parking
 from pedestrians import Pedestrians
+from progression import CENTER_RACES, ISLAND_LEVEL, REGIONS
+from racers import LAPS, REQUIRED_LEVELS, cut_chance, rival, track_size
 from pause_menu import PauseMenu
 from player_save import PlayerSave
 from traffic import Traffic
@@ -38,7 +41,10 @@ DRIVE_ZOOM = 1.0
 WALK_ZOOM = 2.0     # On foot the camera zooms in so people read at 64 screen px.
 ZOOM_RATE = 6.0     # Higher is a faster zoom transition.
 EXIT_SPEED = 15.0   # The car must be nearly stopped to get out.
-RACE_OVER_DELAY = 2.0  # Seconds the race result shows before returning to the world.
+RACE_OVER_DELAY = 2.0  # Seconds a win's banner shows before returning (losses end at once).
+CENTER_TALK_RANGE = 130  # On foot, px from a racing center building to enter races.
+SURFACE_NAMES = {"city": "asphalt", "snow": "ice", "rural": "mud", "desert": "sand",
+                 "jungle": "grass"}
 
 
 def camera_position(target, width: float, height: float, zoom: float = 1.0,
@@ -94,6 +100,9 @@ class Game:
         self.race_over = 0.0        # Seconds the finished race has been showing its result.
         self.clock = 0.0
         self.pending_offer = None   # Giver whose offer the panel is showing.
+        self.pending_center = None  # Region whose center race the panel is offering.
+        self.pending_confirm = None  # "abort" or "quit_race" while the panel asks to confirm.
+        self.center_race = None     # (region, race number) while a center race runs.
         self.autosave = Autosave()
         if self.walker:
             # Resume a session saved on foot: parked car solid, camera already zoomed in.
@@ -132,10 +141,46 @@ class Game:
         self.collisions.fixed = [self.car.obstacle()]
         self.zoom = WALK_ZOOM
 
+    # Giving up -----------------------------------------------------------------------
+
+    def _ongoing(self):
+        """What the pause menu may abandon: a race (center or drag), or an in-world mission.
+
+        A race that already has a result is over (a win showing its banner), so there is
+        nothing left to quit."""
+        if self.race:
+            return None if self.race.result else "race"
+        return "mission" if self.missions.active else None
+
+    def _confirm_give_up(self, choice):
+        self.pending_confirm = choice
+        if choice == "quit_race":
+            if self.center_race:
+                region, number = self.center_race
+                lines = (f"Race {number} counts as a loss", "You'll be back at the racing center",
+                         "You can race it again any time")
+            else:
+                lines = ("The race counts as a loss and the mission fails",
+                         "You'll be back at the mission giver", "You can retry the same mission")
+            self.panel.show_confirm("Quit race?", "Failed", lines, "QUIT", "KEEP RACING")
+        else:
+            mission = self.missions.active
+            self.panel.show_confirm("Abort mission?", "Failed", (
+                f"{TITLES[mission.offer.type]} for {mission.giver.name}",
+                "It counts as failed; you'll be back at the giver",
+                "You can retry the same mission"), "ABORT", "KEEP GOING")
+
+    def _give_up(self, choice):
+        if choice == "quit_race" and self.race and not self.race.result:
+            self.race.result, self.race.quit = "lose", True
+            self._end_race()
+        elif choice == "abort" and self.missions.active and not self.race:
+            self._show_result(self.missions.abort())
+
     def _refresh_mastery(self):
         player = self.walker or self.car
         here = "" if self.race else self.world.region_at(player.x, player.y)
-        self.menu.set_mastery(self.missions.mastery_rows(here))
+        self.menu.set_mastery(self.missions.mastery_rows(here), self._island_status())
 
     def _fast_travel(self, region):
         """Jump to the region's edge in the car; only offered when no mission is running."""
@@ -166,16 +211,32 @@ class Game:
             return False
         if self.menu.open:
             self._refresh_mastery()  # Travel buttons depend on the latest state.
+            self.menu.set_ongoing(self._ongoing())
             choice = self.menu.handle(action, value)
             if choice == "resume":
                 self.menu.toggle()
+            elif choice in ("abort", "quit_race"):
+                self.menu.toggle()
+                self._confirm_give_up(choice)
             elif choice and choice.startswith("travel:"):
                 self._fast_travel(choice.split(":", 1)[1])
             return choice != "exit"
         if self.panel.open:
             outcome = self.panel.handle(action, value)
+            if outcome is None:
+                return True  # Still choosing (e.g. arrow keys): keep what the panel is for.
+            # The panel closed: consume what it was asking about, so nothing stale lingers
+            # (a leftover race offer once restarted a race the player had just quit).
+            confirm, self.pending_confirm = self.pending_confirm, None
+            center, self.pending_center = self.pending_center, None
+            giver, self.pending_offer = self.pending_offer, None
             if outcome == "accept":
-                self._accept(self.pending_offer)
+                if confirm:
+                    self._give_up(confirm)
+                elif center:
+                    self._start_center_race(center)
+                elif giver:
+                    self._accept(giver)
             return True
         if action in ("pause", "focus_lost"):
             self.menu.toggle()
@@ -186,6 +247,8 @@ class Game:
             (self.walker or self.car).respawn_nearby(self.collisions)
         elif action == "interact":
             self._interact()
+        elif action == "island":
+            self._island_travel()
         elif action == "call_car" and self.walker:
             spot = call_spot(self.walker, self.car, self.collisions)
             if spot:
@@ -201,15 +264,137 @@ class Game:
                 self._step_out(Walker(*spot, heading=self.car.heading))
             return
         giver = self.missions.giver_near(self.walker.x, self.walker.y)
+        center = self._center_near(self.walker.x, self.walker.y)
         if giver:
             if self.missions.active:
                 self.panel.show_message(giver.name, "Finish your current mission first.")
             else:
-                self.pending_offer = giver
+                self.pending_offer, self.pending_center = giver, None
                 self.panel.show_offer(self.missions.preview(self.missions.offer_for(giver)))
+        elif center:
+            self._offer_center_race(center)
         elif self.walker.can_enter(self.car):
             self.walker = None
             self.collisions.fixed = []
+
+    # Racing centers -------------------------------------------------------------
+
+    def _center_near(self, x, y):
+        """Region of the mainland racing center within talking range, if any."""
+        for region in REGIONS:
+            cx, cy = self.missions.center_position(region)
+            if math.dist((x, y), (cx, cy)) <= CENTER_TALK_RANGE:
+                return region
+        return None
+
+    def _offer_center_race(self, region):
+        title = f"{region.title()} Racing Center"
+        won = self.missions.progress.races[region]
+        if self.missions.active:
+            self.panel.show_message(title, "Finish your current mission first.")
+            return
+        if won >= CENTER_RACES:
+            self.panel.show_lines(title, "Champion", (
+                f"You rule the {region} circuit: all {CENTER_RACES} races won.",
+                self._island_status(), ""))
+            return
+        race = won + 1
+        name, line, _ = rival(region, race)
+        level = self.missions.progress.levels[region]
+        self.pending_center, self.pending_offer = region, None
+        self.panel.show_offer({
+            "title": title, "difficulty": f"Race {race} / {CENTER_RACES}",
+            "detail": f'{name}: "{line}"',
+            "rules": f"{LAPS} laps on {SURFACE_NAMES[region]}  ·  "
+                     f"Suggested level {REQUIRED_LEVELS[race - 1]} (yours: {level})",
+            "reward": ("Win to become the region's champion" if race == CENTER_RACES
+                       else f"Win to unlock race {race + 1}"),
+        })
+
+    def _start_center_race(self, region):
+        race = self.missions.progress.races[region] + 1
+        # Each race has its own seed-generated track; later races are bigger blobs
+        # (longer laps, more corners). The rival is calibrated to the track.
+        track = {"kind": "circuit", "theme": region, "laps": LAPS,
+                 "seed": f"{self.world.seed}-{region}-{race}", "size": track_size(race),
+                 "target_level": REQUIRED_LEVELS[race - 1], "cut_chance": cut_chance(race)}
+        _, _, sprite = rival(region, race)
+        scale = self.missions.progress.speed_scale(region)
+        self.race = DragRace(track, None, scale, race * 101 + REGIONS.index(region),
+                             rival_sprite=sprite)
+        self.center_race = (region, race)
+        self.race_over = 0.0
+        self.zoom = DRIVE_ZOOM
+
+    def _finish_center_race(self):
+        region, number = self.center_race
+        race = self.race
+        name, _, _ = rival(region, number)
+        progress = self.missions.progress
+        self.race, self.center_race = None, None
+        cx, cy = self.missions.center_position(region)
+        self._return_to_giver(type("Spot", (), {"x": cx, "y": cy + 150})())
+        title = f"{region.title()} Racing Center"
+        if race.result == "win":
+            was_unlocked = progress.island_unlocked()
+            won = progress.win_race(region)
+            chip = "Champion" if won >= CENTER_RACES else "Success"
+            lines = [f"You beat {name} in {race.times['player']:.1f} s",
+                     (f"{region.title()} champion! Center complete." if won >= CENTER_RACES
+                      else f"Race {won + 1} unlocked  ·  {won}/{CENTER_RACES} won")]
+            if progress.island_unlocked() and not was_unlocked:
+                chip = "Island unlocked"
+                lines.append("Elite Island is open: press T on any beach")
+            else:
+                lines.append(self._island_status() if won >= CENTER_RACES else "")
+        else:
+            chip = "Failed"
+            beaten_by = (f"You quit the race against {name}" if getattr(race, "quit", False)
+                         else f"{name} finished first ({race.times['rival']:.1f} s)")
+            lines = [beaten_by,
+                     "Talk to the center to try again",
+                     f"Suggested level {REQUIRED_LEVELS[number - 1]}  ·  your {region} level "
+                     f"{progress.levels[region]}"]
+        self.autosave.request()
+        self.panel.show_lines(title, chip, lines)
+
+    def _island_status(self):
+        progress = self.missions.progress
+        if progress.island_unlocked():
+            return "Elite Island is open: press T on any beach"
+        return (f"Elite Island: centers {progress.centers_done()}/{len(REGIONS)}  ·  "
+                f"best level {max(progress.levels.values())}/{ISLAND_LEVEL}")
+
+    # Elite Island -----------------------------------------------------------------
+
+    def _island_prompt(self, player):
+        if not self.missions.progress.island_unlocked() or self.race:
+            return ""
+        if on_island(self.world, player.x, player.y):
+            return "T   Return to mainland"
+        if on_mainland_beach(self.world, player.x, player.y):
+            return "T   Travel to Elite Island"
+        return ""
+
+    def _island_travel(self):
+        player = self.walker or self.car
+        prompt = self._island_prompt(player)
+        if not prompt:
+            return
+        if self.missions.active:
+            self.panel.show_message("Elite Island", "Finish your current mission first.")
+            return
+        landing = island_destination(self.world, self.collisions, self.car,
+                                     to_island=prompt.endswith("Island"))
+        if landing is None:
+            self.panel.show_message("Elite Island", "The crossing is blocked right now.")
+            return
+        self.car.x, self.car.y, self.car.heading = landing
+        self.car.speed = 0.0
+        self.walker = None
+        self.collisions.fixed = []
+        self.zoom = DRIVE_ZOOM
+        self.state.set_player_pose(self.player_id, self.car.x, self.car.y, self.car.heading)
 
     def _accept(self, giver):
         offer = self.missions.accept(giver)
@@ -263,19 +448,32 @@ class Game:
     def _update_race(self, dt):
         race = self.race
         race.update(dt, *self.inputs.driving())
-        if race.result:
-            self.race_over += dt
+        if race.result == "lose":
+            self._end_race()  # A lost race (or failed drag mission) ends at once.
+        elif race.result:
+            self.race_over += dt  # A win shows its banner for a moment first.
             if self.race_over >= RACE_OVER_DELAY:
-                won = race.result == "win"
-                seconds = race.times.get("player", race.clock)
-                detail = (f"You won in {seconds:.1f} s" if won
-                          else f"The rival finished first ({race.times['rival']:.1f} s)")
-                giver = self.missions.active.giver
-                result = self.missions.finish_drag(won, detail)
-                self.race = None
-                self._return_to_giver(giver)  # Leaving the level puts you back at the giver.
-                self.autosave.request()
-                self.panel.show_result(result)
+                self._end_race()
+
+    def _end_race(self):
+        """Leave the race level with its result (a quit counts as a loss)."""
+        race = self.race
+        if self.center_race:
+            self._finish_center_race()
+            return
+        won = race.result == "win"
+        seconds = race.times.get("player", race.clock)
+        if getattr(race, "quit", False):
+            detail = "You quit the race"
+        else:
+            detail = (f"You won in {seconds:.1f} s" if won
+                      else f"The rival finished first ({race.times['rival']:.1f} s)")
+        giver = self.missions.active.giver
+        result = self.missions.finish_drag(won, detail)
+        self.race = None
+        self._return_to_giver(giver)  # Leaving the level puts you back at the giver.
+        self.autosave.request()
+        self.panel.show_result(result)
 
     # Render -----------------------------------------------------------------------
 
@@ -290,6 +488,7 @@ class Game:
         if self.menu.open:
             if self.menu.page == "mastery":
                 self._refresh_mastery()
+            self.menu.set_ongoing(self._ongoing())
             self.menu.render()
 
     def _render_world(self):
@@ -317,10 +516,18 @@ class Game:
             guide = center_guide(player, center)
         prompt = ""
         giver = self.missions.giver_near(player.x, player.y) if walker else None
+        center_region = self._center_near(player.x, player.y) if walker else None
+        island = self._island_prompt(player)
         if giver:
             prompt = f"E   Talk  ·  {TITLES[giver.type]}"
+        elif center_region:
+            won = self.missions.progress.races[center_region]
+            prompt = ("E   Racing center  ·  Champion" if won >= CENTER_RACES
+                      else f"E   Racing center  ·  Race {won + 1}/{CENTER_RACES}")
         elif walker and walker.can_enter(car):
             prompt = "E   Get in"
+        elif island:
+            prompt = island
         elif walker and math.dist((walker.x, walker.y), (car.x, car.y)) > CALL_PROMPT_DISTANCE:
             prompt = "Q   Call car"
         self.hud.top_speed = TOP_SPEED * self.missions.progress.speed_scale(region)
@@ -341,6 +548,7 @@ class Game:
                           [self.player_id], 1.0)
         remaining = max(0.0, level.race_length - race.player_progress) / 10
         place = "1ST" if race.position() == 1 else "2ND"
+        clock = max(0.0, race.clock)
         banner = ""
         if race.clock < 0:
             banner = str(race.countdown)
@@ -349,24 +557,54 @@ class Game:
         elif race.result:
             banner = "YOU WIN!" if race.result == "win" else "YOU LOSE"
         self.hud.top_speed = TOP_SPEED * race.speed_scale
-        kind = "Quarter mile" if level.kind == "straight" else "Single lap"
-        self.hud.render(car.speed, "Drag race", f"{kind}  ·  {remaining:.0f} m to go",
-                        show_speed=True,
-                        mission=("DRAG RACE", f"{place}  ·  {max(0.0, race.clock):.1f} s"),
-                        banner=banner)
+        if self.center_race:
+            region, number = self.center_race
+            name, _, _ = rival(region, number)
+            title, guide = (f"{region.title()} race {number}",
+                            f"Lap {race.lap()}/{LAPS}  ·  {remaining:.0f} m to go")
+            panel = (f"VS {name.upper()}", f"{place}  ·  Lap {race.lap()}/{LAPS}  ·  {clock:.1f} s")
+        else:
+            kind = "Quarter mile" if level.kind == "straight" else "Single lap"
+            title, guide = "Drag race", f"{kind}  ·  {remaining:.0f} m to go"
+            panel = ("DRAG RACE", f"{place}  ·  {clock:.1f} s")
+        self.hud.render(car.speed, title, guide, show_speed=True, mission=panel, banner=banner)
 
     def _toast(self):
         return "Saved" if self.autosave.toast > 0 else ""
 
+    def _saved_pose(self):
+        """Car and walker as they should be saved.
+
+        Missions and races are never saved mid-way: while one is under way, the save puts
+        the player on foot back where it began (the giver or racing center) with the car
+        beside them, so loading (or quitting) counts as quitting it. The live game is not
+        changed, so an autosave does not interrupt the mission."""
+        if self.center_race:
+            cx, cy = self.missions.center_position(self.center_race[0])
+            start = (cx, cy + 150)
+        elif self.missions.active:
+            giver = self.missions.active.giver
+            start = (giver.x, giver.y + 30)
+        else:
+            return self.car, self.walker
+        probe = Walker(*start)
+        spot = nearest_clear_spot(self.collisions, probe.collision_record, *start, 6) or start
+        walker = Walker(*spot)
+        car = dataclasses.replace(self.car, speed=0.0)
+        car_spot = call_spot(walker, car, self.collisions)
+        if car_spot:
+            car.x, car.y = car_spot
+        return car, walker
+
     def _autosave(self):
         """Player state is tiny and saved now; the world file is written in the background."""
-        self.player_save.save(self.car, self.walker, self.missions.to_dict())
+        self.player_save.save(*self._saved_pose(), self.missions.to_dict())
         self.world_store.save(background=True)
 
     def save(self):
         self.world_store.save()  # Waits for any background autosave first.
-        # An ongoing mission (even mid-race) is saved as queued at its giver.
-        self.player_save.save(self.car, self.walker, self.missions.to_dict())
+        # Quitting mid-mission or mid-race quits it: saved back at the giver or center.
+        self.player_save.save(*self._saved_pose(), self.missions.to_dict())
 
 
 def main():

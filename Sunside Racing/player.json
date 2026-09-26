@@ -1,21 +1,22 @@
 {
   "version": 3,
-  "mode": "drive",
+  "mode": "walk",
   "car": {
-    "x": 12323.268866645674,
-    "y": 16295.24180971292,
-    "heading": 62.55707136057694
+    "x": 12780.061475842818,
+    "y": 15449.595971334866,
+    "heading": 0.0
   },
   "missions": {
     "progress": {
       "city": {
         "level": 2,
-        "mastery": 0,
+        "mastery": 13,
         "completed": {
-          "delivery": 1,
-          "speed": 2,
-          "drag": 2
-        }
+          "delivery": 2,
+          "speed": 5,
+          "drag": 3
+        },
+        "races": 4
       },
       "jungle": {
         "level": 1,
@@ -24,16 +25,18 @@
           "delivery": 0,
           "speed": 0,
           "drag": 0
-        }
+        },
+        "races": 0
       },
       "desert": {
         "level": 1,
-        "mastery": 1,
+        "mastery": 0,
         "completed": {
           "delivery": 0,
-          "speed": 1,
+          "speed": 0,
           "drag": 0
-        }
+        },
+        "races": 0
       },
       "snow": {
         "level": 1,
@@ -42,7 +45,8 @@
           "delivery": 0,
           "speed": 0,
           "drag": 0
-        }
+        },
+        "races": 0
       },
       "rural": {
         "level": 1,
@@ -51,11 +55,39 @@
           "delivery": 0,
           "speed": 0,
           "drag": 0
-        }
+        },
+        "races": 0
       }
     },
-    "counter": 6,
-    "offers": {},
-    "queued": null
+    "counter": 13,
+    "offers": {
+      "city-drag": {
+        "type": "drag",
+        "scale": 1.227,
+        "target": null,
+        "track": {
+          "kind": "circuit",
+          "theme": "city",
+          "seed": 47328636,
+          "size": 4
+        },
+        "seed": 47328636
+      },
+      "city-delivery": {
+        "type": "delivery",
+        "scale": 0.55,
+        "target": [
+          17225.506785691432,
+          5635.987712620077
+        ],
+        "track": null,
+        "seed": 652773184
+      }
+    }
+  },
+  "walker": {
+    "x": 12740.061475842818,
+    "y": 15471.495971334863,
+    "heading": 180.0
   }
 }

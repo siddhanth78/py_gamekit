@@ -30,10 +30,8 @@ Roads and scenery
 Racing progression
 - One racing center in each mainland region: city, jungle, desert, snow,
   rural. Each center has 10 races with increasing difficulty (50 total).
-- The island unlocks once every mainland center is fully complete (see
-  Missions; center races are 3-lap races scaled by center progression).
-- Center races run through the shared world; mission drag races load their
-  own empty-road levels.
+- Built: see "Racing centers and Elite Island completed". Center races and
+  drag races both load their own track levels.
 - Race routes, opponents, rewards, and precise unlock rules beyond the island
   requirement remain to be designed.
 
@@ -544,33 +542,226 @@ Autosave completed (2026-09-26)
 - Still possible: a crash loses at most about 60 s of exploring. Mission
   results are saved immediately.
 
-Racing centers + island (IN PROGRESS 2026-09-26; stopped at usage limit)
-- Done:
-  - track-atlas has 5 region surfaces (track_<region>_<part>: city
-    asphalt, snow ice, rural mud, desert sand, jungle grass; parts base,
-    edge, corner, inner, start, finish) plus shared fence and tires.
-  - drag_race.TrackLevel uses the region surface with that region's grip
-    and top speed (car.SURFACES; off-track is "offtrack"). It supports laps
-    (race_length = laps x lap), 5 circuit shapes, and DragRace.lap(). The
-    rival scales that region's base car (top, and grip-limited accel,
-    brake, corner) and can take a given sprite. Tests pass.
-- Left to build (agreed design):
-  - racers.py: region stories, and 10 named rivals per region with one
-    dialogue line each.
-  - Center races: E at the center building starts race k (3-lap circuit,
-    shape k % 5). Rival scale = 1 + 0.04 x (L_k - 1), with L_k =
-    1, 2, 3, 5, 7, 9, 11, 14, 17, 20. A win advances progress (saved in
-    Progress as races won); a loss allows a retry. No mastery reward.
-    Blocked while a mission is active.
-  - HUD lap counter; result panels; return to the center after a race.
-  - Mastery page CENTER x/10 column and an island status footer.
-  - Island unlock: all 5 centers 10/10 and best region level >= 25
-    (constant, confirm with user). T on a mainland beach travels to Elite
-    Island; T on the island returns to the mainland dock. Add T to the
-    Controls page.
-  - Tests and end-to-end checks.
-- Deviation to confirm: center races are separate track levels, not
-  routes through the open world as first planned.
+Racing centers and Elite Island completed (2026-09-26)
+- User confirmed: center races load separate track levels (not open-world
+  routes), and the island needs every center complete plus level 25 in a
+  region (implemented as: the best region level >= ISLAND_LEVEL).
+- Region track surfaces (track-atlas, track_<region>_<part>): city asphalt,
+  snow ice, rural mud, desert sand, jungle grass. Races (and mission drag
+  races) drive with that region's grip and top speed from car.SURFACES,
+  plus the player's level speed bonus there. Runoff uses OFF_SURFACE.
+- racers.py: one story line per region and 10 named rivals each (name,
+  line, car). Race 10 is the champion (Queen Lux, The Warden, Sultan Rae,
+  The Glacier, Big Mae).
+- Race k: 3-lap circuit on its own seed-generated track (see "Seed-generated
+  race tracks"), rival calibrated so a flawless player wins at level L_k,
+  with L_k = 1, 2, 3, 5, 7, 9, 11, 14, 17, 20. The
+  rival scales the region's base car (grip-limited accel, brake, corner).
+  Checked: a flawless player first wins race k at about level L_k in
+  every region (race 10: level 20; 19 on ice).
+- Flow: on foot within 130 px of a mainland center, "E  Racing center ·
+  Race k/10" opens an offer (rival line, surface, suggested level vs
+  yours). Blocked while a mission is active. A win records
+  Progress.races[region] (saved as "races"; old saves start at 0) and shows
+  "Race k+1 unlocked" or champion. A loss offers a retry. Either way you are
+  placed on foot at the center with your car nearby, and it autosaves. No
+  mastery from races. The HUD shows "VS <RIVAL>", place, "Lap n/3", and the
+  time.
+- Elite Island: Progress.island_unlocked() = all 5 centers 10/10 and a
+  region at level 25. On any mainland beach, "T  Travel to Elite Island"
+  lands the player in the car south of the island center; on the island,
+  "T  Return to mainland" lands at the mainland ferry dock. Blocked during
+  missions. Island content comes later.
+- Mastery page: CENTER x/10 column (green when complete) and an island
+  status line ("centers n/5 · best level n/25"). Controls page: T row; the
+  E row mentions racing centers.
+- Bug caught end-to-end and fixed: a new "center" variable in the prompt
+  code shadowed the guide-arrow target and would have crashed near centers.
+- Tests: test_centers.py (10). Suite total 90. End-to-end: center offer,
+  3-lap race HUD (city and snow), win and loss results, mastery page,
+  island travel there and back, saved race counts.
+
+Seed-generated race tracks completed (2026-09-26)
+- track_gen.py: a circuit is the outline of a random blob of grid cells
+  (6 tiles each), grown without holes or corner-only contacts, so the
+  outline is always a simple clockwise loop. Parallel stretches stay 6
+  tiles apart, so barriers never overlap. The start is the longest
+  eastbound straight (at least 6 tiles). Same seed, same track; generated
+  on load (about 0.1 ms per layout), not cached. TRACK_GENERATOR_VERSION = 1.
+- Center race k: seed "<world seed>-<region>-<k>", blob size
+  racers.track_size(k) = 4 + 8k // 10 (4 to 12 cells). Average lap grows
+  from about 370 m (race 1, 6 corners) to about 890 m (race 10, up to 16
+  corners). All 50 layouts are unique.
+- Balance: every rival speed scales with its scale, so its time is
+  T(1) / scale plus reaction. drag_race.calibrated_scale() simulates the
+  rival once at scale 1 (at 60 Hz) and picks the scale at which a flawless
+  player at REQUIRED_LEVELS[k] wins by 0.5%. Checked for all 50: win at the
+  target level, lose one level below. racers.rival_scale was removed. Race
+  load including calibration is 37 ms at worst.
+- Mission drag circuits: new offers get their own generated layout (offer
+  seed, 4-7 cells). Old saved offers with a fixed "shape" still load.
+- Tests: generator (50 unique, deterministic, simple clockwise loops that
+  start eastbound, barriers never on the track), per-race balance. Suite
+  green. End-to-end center flow re-run on generated tracks.
+
+Corner cutting and ideal-line balance (2026-09-26)
+- Problem found in play: a level-2 player beat a level-5 race. Tracks are
+  3 tiles wide with square corners, so cutting each corner at the inside
+  apex makes the lap 25-28% shorter. The calibration assumed the
+  centerline, so races 4-5 were winnable at level 1.
+- Fix: drag_race.best_line_length() is the ideal line (every corner cut at
+  its apex, 84 px inside the centerline corner). flawless_time() now uses
+  it, so "just winnable at level L" holds for a player who cuts corners.
+- Rival corner cutting (racing-center 3-lap races only): at each corner the
+  rival cuts to the apex with probability racers.cut_chance(k) = 10%
+  (race 1) to 90% (race 10), rolled from its seed, so a race always plays
+  out the same way. The rival drives a precomputed path for all laps;
+  its race progress is measured on the centerline like the player's.
+  Mission drag rivals never cut. On drag circuits, the offer scale s now
+  means "a flawless s x stock car on the ideal line", as on straights.
+- Calibration: race time is not exactly 1 / scale (acceleration and
+  braking scale too), so calibrated_scale() now refines the estimate with
+  up to 6 runs of the same seeded rival, to within 0.02 s. All 50 center
+  races: win at the target level, lose one level below, rival always on
+  track. Worst race load is about 0.5 s (race 10); the countdown covers it.
+- Bugs fixed on the way: the rival froze at the lap seam (the final-segment
+  check compared points, which repeat every lap; it now uses the index), and
+  the calibration loop now raises instead of hanging if a rival never
+  finishes.
+- Tests: ideal line shorter than the centerline, cut rate rises with the
+  race and the rival stays on track, drag rivals never cut and are
+  balanced for the ideal line. Suite green (about 43 s).
+
+Local rival corner cuts (built 2026-09-26)
+- Problem: a cut corner is a single apex waypoint. The rival drives
+  straight from the previous point to the apex and on to the next corner,
+  a long diagonal across the whole straight (hugging the edge) instead
+  of cutting only the corner.
+- Fix: a cut corner becomes three waypoints: rejoin the centerline 96 px
+  (1.5 tiles) before the corner, clip the apex, return to the centerline
+  96 px after the corner. Straights are driven on the centerline; only
+  the corner itself is cut.
+- The rival loses some of its shortcut, so the calibration raises its
+  scale to keep "win at the target level" exact (re-verify all 50 races).
+  The player's ideal line and the balance target are unchanged.
+- Built: CUT_REACH = 96 px entry and exit waypoints; only the apex (or an
+  uncut corner) is a braking point. The rival also merges from its grid
+  slot to the centerline 1 tile after the start. Verified over all 50
+  center races: mid-straight distance from the centerline is 0 px, win at
+  the target level and lose one level below, rival always on track. Worst
+  race load is about 0.65 s. New test: cuts stay at the corners and
+  straights stay central.
+
+Diagonal rival corner cuts (built 2026-09-26)
+- Problem: a cut is centerline -> apex -> centerline (three waypoints), so
+  the rival turns toward the apex, turns 90 degrees there, then turns back:
+  it reads as a three-sided polygon, not a corner cut.
+- Fix: a cut becomes one straight diagonal (a 45-degree chamfer). Leave the
+  centerline 168 px before the corner and rejoin 168 px after it; the
+  diagonal between them passes exactly through the 84 px apex. Only two
+  gentle 45-degree heading changes, which the rival's turn smoothing rounds
+  off. Segments are at least 384 px, so two cut corners in a row still
+  leave a short straight between them.
+- The rival brakes where the diagonal starts. Re-run calibration and
+  checks: all 50 races balanced, rival on track, straights central.
+- Built: CUT_REACH = 2 x APEX = 168 px; a cut is two waypoints (enter and
+  exit) whose diagonal passes exactly through the apex; the brake point is
+  the entry. If the first corner's cut begins before the start merge
+  point, the merge point is dropped (it caused a 145-degree double-back).
+  Verified over all 50 races: sharpest path bend 90 degrees (only at uncut
+  corners), mid-straight 0 px off center (beyond 3 tiles from corners),
+  balanced at target level and one below, rival always on track. Tests
+  updated plus a "cuts are diagonals, not hairpins" test.
+
+Abort mission / quit race completed (2026-09-26)
+- Pause menu: while an in-world mission (delivery or speed check) is
+  ongoing, ABORT MISSION appears under Resume; during any race (center or
+  mission drag), QUIT RACE appears instead. The panel grows and the
+  buttons stay centered; the selection is kept when the option comes and
+  goes (PauseMenu.set_ongoing, fed by Game._ongoing()).
+- Choosing it asks to confirm (MissionPanel.show_confirm; the safe answer,
+  KEEP GOING or KEEP RACING, starts selected).
+- Abort mission: Missions.abort() fails it (no mastery, not counted as
+  completed); the same offer stays for a retry; the player is returned to
+  the giver; autosave.
+- Quit race: the race is marked lost (race.quit). A center race counts as
+  a loss ("You quit the race against <rival>"; races won unchanged; back
+  at the center). A mission drag race also fails its mission (back at the
+  giver, offer kept). Both autosave.
+- Queued missions are unaffected (nothing is running to abandon).
+- Tests: menu items per state, selection kept, the column stays
+  centered, abort keeps the offer. End-to-end: decline keeps the mission;
+  abort, center-race quit, and drag quit all work with their result
+  panels.
+
+Speed check renamed to Time Trial (2026-09-26)
+- Player-facing name only: missions.TITLES["speed"] = "Time Trial" (giver
+  names such as "City Time Trial", the offer panel, HUD mission title,
+  prompts, confirm dialogs, and "Ongoing · Time Trial"). The Mastery page
+  Completed column reads "Del · Trial · Drag". The internal key stays
+  "speed", so saves, offers, and marker icons are unchanged. Older notes
+  in this file that say "speed check" mean the time trial.
+
+Bug fix: quitting a race restarted it (2026-09-26)
+- Cause: in Game.handle, every key press while a panel was open cleared
+  pending_confirm, including arrow keys used to move to QUIT. The final
+  Enter then fell through to the still-set pending_center (never cleared
+  after the race started) and started the race again.
+- Fix: panel state (pending_confirm, pending_center, pending_offer) is
+  consumed only when the panel actually closes (outcome not None), then
+  dispatched; a stale offer can no longer be accepted.
+- The earlier end-to-end check set panel selections directly and missed
+  this. New test_game_flows.py drives the real keyboard path (hidden
+  OpenGL window, temp copies of the saves): quit a center race and return
+  to the center, Esc on the confirm keeps racing, and abort a delivery
+  after moving the selection. Skipped automatically when no GL window is
+  available.
+
+Left/Right on side-by-side panel buttons (2026-09-26)
+- InputHandler emits menu_left (Left or A) and menu_right (Right or D).
+  MissionPanel uses them on its side-by-side buttons: Left selects the
+  left button, Right the right one, stopping at the edges. Applies to
+  Quit/Keep racing, Abort/Keep going, Accept/Decline offers, and other
+  two-button panels. Up/Down still toggle. The intents are ignored when
+  no panel is open, so steering and walking are unaffected. Covered by a
+  real-key test in test_game_flows.py.
+
+Failed missions and lost races end at once (2026-09-26)
+- Bug: a lost race stayed on its level for RACE_OVER_DELAY (2 s) before
+  ending, and that delay only advanced while unpaused. Pausing in that
+  window left the lost race (and, for drag races, the failed mission)
+  "ongoing" until the player chose QUIT RACE.
+- Fix: race.result == "lose" ends the race immediately (_end_race): result
+  panel, return to the center or giver, and the drag mission is failed.
+  Wins still show "YOU WIN!" for 2 s. In-world failures (time trial out of
+  time, delivery below 50 points) were already immediate; re-verified.
+- A race that already has a result is no longer "ongoing", so QUIT RACE
+  is not offered during a win's banner, and _give_up ignores finished
+  races (quitting could previously have turned a win into a loss).
+- Tests: a lost drag race fails its mission at once with no quit or abort
+  offered; pausing during a win keeps the win. test_game_flows.py now
+  resets its temporary saves before each test.
+
+Mission system revamp: no queued missions (2026-09-26)
+- There is an ongoing mission or none; the "queued" state is gone
+  (Missions.queued, abandon_to_queue, the QUEUED MISSION HUD panel and
+  mastery text, and "queued" in player.json). Older saves that contain
+  "queued" load and ignore it.
+- A giver's offer stays until it is completed, so "sending the mission back
+  to the giver" is just dropping the active mission: the same offer waits.
+- Abort mid-mission (pause menu): failed, back at the giver, same offer (as
+  before). Quit mid-race: loss, back at the center or giver (as before).
+- Quitting the game mid-mission or mid-race quits it. Game._saved_pose()
+  makes the save put the player on foot at the giver (or 150 px south of
+  the racing center) with the car called beside them; the ongoing mission
+  or race is never written. Autosaves use the same snapshot, so a crash
+  mid-mission also loads back at the giver. The live session is not
+  changed by an autosave. Races won never change on a quit.
+- This supersedes "Mission persistence ... saved as a queued mission" and
+  any other queued-mission notes above.
+- Tests: missions (never saved, offer kept, old queued saves ignored) and
+  real-key game flows (quit game mid-delivery and mid-race, autosave
+  mid-mission).
 
 Technical basis
 - Keep game-specific code in this marked project. Adapt game_state.py,

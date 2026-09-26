@@ -20,7 +20,8 @@ BUTTON = (44, 66, 76, 255)
 BUTTON_EDGE = (78, 104, 112, 255)
 SHADOW = (8, 14, 18, 150)
 CHIP = {"Easy": (86, 176, 104), "Medium": (226, 176, 72), "Hard": (212, 80, 66),
-        "Success": (86, 176, 104), "Failed": (212, 80, 66), "Level up": (242, 202, 87)}
+        "Success": (86, 176, 104), "Failed": (212, 80, 66), "Level up": (242, 202, 87),
+        "Champion": (242, 202, 87), "Island unlocked": (86, 176, 104)}
 PANEL_SIZE = (680, 420)
 BUTTON_SIZE = (240, 60)
 
@@ -77,6 +78,15 @@ class MissionPanel:
             lines.append(f"{result['region'].title()} level {level}  ·  {have}/{need} mastery to next")
         self._show("result", result["title"], chip, lines, ("CONTINUE",))
 
+    def show_lines(self, title: str, chip: str, lines, buttons=("CONTINUE",)):
+        """A result-style panel with custom text (e.g. racing-center results)."""
+        self._show("result", title, chip, lines, buttons)
+
+    def show_confirm(self, title: str, chip: str, lines, yes: str, no: str):
+        """Yes/no question; returns 'accept' or 'decline'. The safe answer (no) starts selected."""
+        self._show("offer", title, chip, lines, (yes, no))
+        self.selected = 1
+
     def show_message(self, title: str, line: str):
         self._show("result", title, "", (line, "", ""), ("OK",))
 
@@ -101,7 +111,11 @@ class MissionPanel:
         """Returns 'accept', 'decline', or 'close' when the panel is dismissed."""
         if action == "pause":
             return self._close("decline" if self.mode == "offer" else "close")
-        if action in ("menu_up", "menu_down"):
+        if action in ("menu_left", "menu_right"):
+            # Buttons sit side by side: Left picks the left one, Right the right one.
+            last = len(self.buttons) - 1
+            self.selected = max(0, self.selected - 1) if action == "menu_left" else min(last, self.selected + 1)
+        elif action in ("menu_up", "menu_down"):
             self.selected = (self.selected + 1) % len(self.buttons)
         elif action == "confirm":
             return self._choose(self.selected)

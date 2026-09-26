@@ -16,8 +16,9 @@ CONTROLS = (
     ("A  D  /  LEFT  RIGHT", "Steer  ·  walk west, east"),
     ("SPACE", "Handbrake"),
     ("SHIFT", "Run while on foot"),
-    ("E", "Get in or out  ·  talk to mission givers"),
+    ("E", "Get in/out  ·  givers and racing centers"),
     ("Q", "Call your car (on foot)"),
+    ("T", "Travel to or from Elite Island"),
     ("R", "Unstick yourself nearby"),
     ("ESC", "Pause menu"),
 )
@@ -26,6 +27,8 @@ LABELS = {
     "controls": ("CONTROLS", 60, True, "center"),
     "mastery_title": ("MASTERY", 60, True, "center"),
     "mastery": ("MASTERY", 36, True, "center"),
+    "abort": ("ABORT MISSION", 32, True, "center"),
+    "quit_race": ("QUIT RACE", 36, True, "center"),
     "resume": ("RESUME", 36, True, "center"),
     "help": ("HELP", 36, True, "center"),
     "exit": ("EXIT", 36, True, "center"),
@@ -47,21 +50,23 @@ BUTTON_EDGE = (78, 104, 112, 255)
 KEY_CAP = (44, 66, 76, 255)
 SHADOW = (8, 14, 18, 150)
 
-PANEL_SIZE = {"main": (480, 560), "help": (720, 680), "mastery": (1180, 640)}
+PANEL_SIZE = {"main": (480, 560), "help": (720, 700), "mastery": (1180, 640)}
 # Mastery table: (header, x offset from the panel's left edge).
 # Mastery table: (header, x offset from the panel's left edge). Unlocks read in level
 # order: fast travel (level 3) before veteran givers (level 5).
-MASTERY_COLUMNS = (("REGION", 40), ("LEVEL", 175), ("PROGRESS", 255), ("SPEED", 470),
-                   ("COMPLETED", 560), ("MISSION", 765), ("TRAVEL", 950), ("VETERANS", 1050))
-COLUMN_WIDTHS = (130, 70, 200, 90, 190, 170, 84, 100)
-TRAVEL_COL, VETERANS_COL = 6, 7
+MASTERY_COLUMNS = (("REGION", 40), ("LEVEL", 160), ("PROGRESS", 225), ("CENTER", 395),
+                   ("SPEED", 475), ("COMPLETED", 560), ("MISSION", 755), ("TRAVEL", 950),
+                   ("VETERANS", 1050))
+COLUMN_WIDTHS = (120, 60, 160, 70, 80, 190, 170, 84, 100)
+PROGRESS_COL, CENTER_COL, TRAVEL_COL, VETERANS_COL = 2, 3, 7, 8
+BAR_WIDTH = 150
 TRAVEL_BUTTON = (84, 36)
 TRAVEL_TEXT = {"ready": "TRAVEL", "here": "Here", "busy": "Busy", "locked": "Lvl 3"}
 MASTERY_ROW_GAP = 64
 GOOD = (120, 200, 130)
 BUTTON_SIZE = (312, 64)
 BUTTON_GAP = 84
-ROW_GAP = 36
+ROW_GAP = 34
 
 
 def _rect(x, y, width, height, rgba, thickness=0.0):
@@ -92,6 +97,7 @@ class PauseMenu:
         # own quad buffer (rewriting one shared buffer between draws stalls the GPU).
         self.mastery_rows = []
         self.headers = [DynamicLabel(ctx, (160, 24), 20, bold=True) for _ in MASTERY_COLUMNS]
+        self.footer = DynamicLabel(ctx, (760, 26), 20, bold=True, align="center")
         for label, (text, _) in zip(self.headers, MASTERY_COLUMNS):
             label.set(text)
         self.cells = [[DynamicLabel(ctx, (w, 30), 30 if c == 1 else 22,
@@ -99,12 +105,15 @@ class PauseMenu:
                                     align="center" if c == TRAVEL_COL else "left")
                        for c, w in enumerate(COLUMN_WIDTHS)] for _ in range(5)]
         self.quads = {}
-        for label in self.headers + [cell for row in self.cells for cell in row]:
+        for label in self.headers + [self.footer] + [cell for row in self.cells for cell in row]:
             instances = get_new_instances(0, 0, 1)[2]
             self.quads[id(label)] = (instances, *build_tex_objs(ctx, self.text_program, instances))
 
-    def set_mastery(self, rows):
-        """Rows from Missions.mastery_rows(); labels only re-render when text changes."""
+    def set_mastery(self, rows, footer: str = ""):
+        """Rows from Missions.mastery_rows() plus an island status line; labels only
+        re-render when their text changes."""
+        if getattr(self, "footer", None) is not None:
+            self.footer.set(footer)
         # Keep the same button selected when the set of travel buttons changes.
         current = self.items[self.selected] if self.page == "mastery" else None
         self.mastery_rows = rows
@@ -114,8 +123,8 @@ class PauseMenu:
         for cells, row in zip(self.cells, rows):
             done = row["completed"]
             texts = (row["region"].title(), str(row["level"]), f"{row['mastery']} / {row['need']}",
-                     f"+{row['speed']}%",
-                     f"Del {done['delivery']}  ·  Spd {done['speed']}  ·  Drag {done['drag']}",
+                     f"{row['races']} / 10", f"+{row['speed']}%",
+                     f"Del {done['delivery']}  ·  Trial {done['speed']}  ·  Drag {done['drag']}",
                      row["mission"] or "—", TRAVEL_TEXT[row["travel"]],
                      "Unlocked" if row["veterans"] else "Lvl 5")
             for cell, text in zip(cells, texts):
@@ -127,7 +136,26 @@ class PauseMenu:
             # A travel button for each region the player can jump to, then Back.
             return tuple(f"travel:{row['region']}" for row in self.mastery_rows
                          if row["travel"] == "ready") + ("back",)
+        if self.page == "main":
+            # While a mission or race is under way, offer to abandon it under Resume.
+            ongoing = {"mission": ("abort",), "race": ("quit_race",)}.get(
+                getattr(self, "ongoing", None), ())
+            return PAGES["main"][:1] + ongoing + PAGES["main"][1:]
         return PAGES[self.page]
+
+    def set_ongoing(self, kind):
+        """kind: None, "mission" (in-world mission), or "race" (center or drag race)."""
+        current = self.items[self.selected] if self.open and self.page == "main" else None
+        self.ongoing = kind
+        if current is not None:
+            items = self.items
+            self.selected = items.index(current) if current in items else 0
+
+    def _panel_size(self):
+        width, height = PANEL_SIZE[self.page]
+        if self.page == "main":
+            height += BUTTON_GAP * (len(self.items) - len(PAGES["main"]))
+        return width, height
 
     def toggle(self):
         self.open = not self.open
@@ -141,15 +169,17 @@ class PauseMenu:
     def _button_centers(self):
         width, height = self.viewport
         if self.page == "help":
-            return [(width // 2, height // 2 + 264)]
+            return [(width // 2, height // 2 + 274)]
         if self.page == "mastery":
             left = width // 2 - PANEL_SIZE["mastery"][0] // 2
             top = height // 2 - PANEL_SIZE["mastery"][1] // 2
             ready = [i for i, row in enumerate(self.mastery_rows) if row["travel"] == "ready"]
             x = left + MASTERY_COLUMNS[TRAVEL_COL][1] + TRAVEL_BUTTON[0] // 2
             return [(x, top + 236 + i * MASTERY_ROW_GAP) for i in ready] + \
-                [(width // 2, height // 2 + 250)]
-        return [(width // 2, height // 2 - 60 + i * BUTTON_GAP) for i in range(len(self.items))]
+                [(width // 2, height // 2 + 262)]
+        # Keep the column of buttons centered when an extra one is shown.
+        first = height // 2 - 60 - BUTTON_GAP * (len(self.items) - len(PAGES["main"])) // 2
+        return [(width // 2, first + i * BUTTON_GAP) for i in range(len(self.items))]
 
     def _button_records(self):
         sizes = [TRAVEL_BUTTON if item.startswith("travel:") else BUTTON_SIZE for item in self.items]
@@ -157,13 +187,14 @@ class PauseMenu:
                 for (x, y), size in zip(self._button_centers(), sizes)]
 
     def _choose(self, item):
-        """Pages change here; 'resume', 'exit', and 'travel:<region>' go to the game."""
+        """Pages change here; 'resume', 'exit', 'abort', 'quit_race', and 'travel:<region>'
+        go to the game."""
         if item in ("help", "mastery"):
             self._show(item)
         elif item == "back":
             came_from = self.page
             self._show("main")
-            self.selected = PAGES["main"].index(came_from)
+            self.selected = self.items.index(came_from)
         else:
             return item
         return None
@@ -191,7 +222,7 @@ class PauseMenu:
     def render(self):
         width, height = self.viewport
         cx, cy = width // 2, height // 2
-        panel_w, panel_h = PANEL_SIZE[self.page]
+        panel_w, panel_h = self._panel_size()
         top = cy - panel_h // 2
         rects = [
             _rect(cx, cy, width, height, (8, 16, 22, 165)),                       # Dim the world.
@@ -212,7 +243,7 @@ class PauseMenu:
             key_left, action_left = cx - 320, cx - 50
             for i in range(len(CONTROLS)):
                 y = top + 190 + i * ROW_GAP
-                rects.append(_rect(key_left + 118, y, 244, 30, KEY_CAP))
+                rects.append(_rect(key_left + 118, y, 244, 28, KEY_CAP))
                 texts.append(self.labels.record(f"key{i}", key_left + 8, y, ACCENT, align="left"))
                 texts.append(self.labels.record(f"act{i}", action_left, y, CREAM, align="left"))
             texts.append(self.labels.record("goal", cx, top + 190 + len(CONTROLS) * ROW_GAP, MUTED))
@@ -263,20 +294,24 @@ class PauseMenu:
                 rects.append(_rect(left + panel_w // 2, y, panel_w - 60, MASTERY_ROW_GAP - 6,
                                    (44, 66, 76, 120)))
             # Progress bar toward the next level.
-            bar_x = left + MASTERY_COLUMNS[2][1]
+            bar_x = left + MASTERY_COLUMNS[PROGRESS_COL][1]
             fraction = min(1.0, row["mastery"] / row["need"])
-            rects.append(_rect(bar_x + 90, y + 13, 180, 8, (20, 30, 36, 255)))
+            half = BAR_WIDTH // 2
+            rects.append(_rect(bar_x + half, y + 13, BAR_WIDTH, 8, (20, 30, 36, 255)))
             if fraction:
-                rects.append(_rect(bar_x + 90 - 90 * (1 - fraction), y + 13, 180 * fraction, 8,
+                rects.append(_rect(bar_x + half - half * (1 - fraction), y + 13, BAR_WIDTH * fraction, 8,
                                    (*ACCENT, 255)))
             chosen = self.items[self.selected] == f"travel:{row['region']}"
             travel = (INK if chosen else CREAM) if row["travel"] == "ready" else MUTED
-            colors = (CREAM, ACCENT, CREAM, GOOD if row["speed"] else MUTED, CREAM,
+            colors = (CREAM, ACCENT, CREAM, GOOD if row["races"] >= 10 else CREAM,
+                      GOOD if row["speed"] else MUTED, CREAM,
                       ACCENT if row["mission"] else MUTED, travel,
                       GOOD if row["veterans"] else MUTED)
-            offsets = (0, 0, -9, 0, 0, 0, 1, 0)
+            offsets = (0, 0, -9, 0, 0, 0, 0, 1, 0)
             for c, (label, (_, x), color, dy) in enumerate(zip(labels, MASTERY_COLUMNS, colors, offsets)):
                 # The TRAVEL cell is centered on its button; the rest are left-aligned.
                 x = left + x + (TRAVEL_BUTTON[0] // 2 if c == TRAVEL_COL else 0)
                 cells.append((label, label.record(x, y + dy, color)))
+        # Elite Island progress under the table.
+        cells.append((self.footer, self.footer.record(left + panel_w // 2, top + 532, MUTED)))
         return cells
