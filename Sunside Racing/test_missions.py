@@ -228,9 +228,11 @@ class DragRaceTests(unittest.TestCase):
         for kind, shape in (("straight", 0), ("circuit", 0), ("circuit", 1), ("circuit", 2)):
             level = TrackLevel(kind, "desert", shape)
             names = {s.name for s in level.sprites if s.atlas == "track-atlas"}
-            self.assertTrue({"track_asphalt", "track_edge", "track_fence", "track_finish"} <= names)
+            self.assertTrue({"track_desert_base", "track_desert_edge", "track_fence",
+                             "track_desert_finish"} <= names)
             if kind == "circuit":
-                self.assertTrue({"track_corner", "track_inner", "track_tires"} <= names)
+                self.assertTrue({"track_desert_corner", "track_desert_inner", "track_tires"} <= names)
+            self.assertEqual(level.region_at(*level.path[0]), "desert")  # Desert grip on track.
             # Every track cell is fenced off from the outside world.
             for tx, ty in level.track:
                 for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):

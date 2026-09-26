@@ -126,18 +126,20 @@ class Hud:
         self.mission_title = DynamicLabel(ctx, (360, 32), 26, bold=True)
         self.mission_line = DynamicLabel(ctx, (360, 28), 24)
         self.banner = DynamicLabel(ctx, (640, 120), 110, bold=True, align="center")
+        self.toast = DynamicLabel(ctx, (120, 24), 20, bold=True, align="center")
         self._text_due = self._speed_due = 0.0
         # One instance buffer per label: rewriting a single shared buffer between
         # draws in the same frame stalls until the GPU finishes the previous draw.
         self.quads = {}
         for label in (self.region, self.guide, self.speed, self.unit, self.prompt,
-                      self.mission_title, self.mission_line, self.banner):
+                      self.mission_title, self.mission_line, self.banner, self.toast):
             instances = get_new_instances(0, 0, 1)[2]
             self.quads[id(label)] = (instances, *build_tex_objs(ctx, self.text_program, instances))
 
     def render(self, speed: float, region: str, guide: str, prompt: str = "",
-               show_speed: bool = True, mission=None, banner: str = ""):
-        """mission: (title, line) for the top-right panel; banner: big centered text."""
+               show_speed: bool = True, mission=None, banner: str = "", toast: str = ""):
+        """mission: (title, line) for the top-right panel; banner: big centered text;
+        toast: a small top-center note such as "Saved"."""
         width, height = self.viewport
         # Re-rendering text uploads a texture, so refresh it a few times a second.
         now = time.perf_counter()
@@ -153,6 +155,7 @@ class Hud:
             self.mission_title.set(mission[0])
             self.mission_line.set(mission[1])  # Timers and crash flashes update every frame.
         self.banner.set(banner)
+        self.toast.set(toast)
 
         # Top-left: where you are and where the racing center is.
         info_w, info_h = 384, 84
@@ -207,6 +210,10 @@ class Hud:
                 (self.mission_line, self.mission_line.record(
                     left, MARGIN + 60, (240, 140, 120) if alert else MUTED)),
             ]
+        if toast:
+            rects += [_rect(width // 2, MARGIN + 14, 120, 28, HUD_PANEL),
+                      _rect(width // 2 - 58, MARGIN + 14, 4, 28, HUD_ACCENT)]
+            labels.append((self.toast, self.toast.record(width // 2 + 2, MARGIN + 15, CREAM)))
         if banner:
             labels.append((self.banner, self.banner.record(width // 2, height // 2 - 120, CREAM)))
         if prompt:

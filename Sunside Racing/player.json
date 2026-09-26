@@ -2,19 +2,19 @@
   "version": 3,
   "mode": "drive",
   "car": {
-    "x": 18378.383909358432,
-    "y": 8792.637816601631,
-    "heading": 188.91252890653897
+    "x": 12323.268866645674,
+    "y": 16295.24180971292,
+    "heading": 62.55707136057694
   },
   "missions": {
     "progress": {
       "city": {
-        "level": 1,
-        "mastery": 5,
+        "level": 2,
+        "mastery": 0,
         "completed": {
           "delivery": 1,
-          "speed": 0,
-          "drag": 1
+          "speed": 2,
+          "drag": 2
         }
       },
       "jungle": {
@@ -54,19 +54,8 @@
         }
       }
     },
-    "counter": 4,
-    "offers": {
-      "city-speed": {
-        "type": "speed",
-        "scale": 1.175,
-        "target": [
-          8612.038984548999,
-          18038.312525104455
-        ],
-        "track": null,
-        "seed": 860340070
-      }
-    },
+    "counter": 6,
+    "offers": {},
     "queued": null
   }
 }

@@ -508,6 +508,70 @@ Fast travel completed (2026-09-26)
   surviving row refreshes. Suite total 77. End-to-end: menu to TRAVEL to
   landing 467 m away in the snow region.
 
+Mastery page layout tweak (2026-09-26)
+- Columns are now REGION, LEVEL, PROGRESS, SPEED, COMPLETED, MISSION,
+  TRAVEL, VETERANS, so the unlocks read in level order (fast travel at 3,
+  veterans at 5). Locked veterans show "Lvl 5", matching TRAVEL's "Lvl 3".
+  The column indices are named constants (TRAVEL_COL, VETERANS_COL).
+
+Matching fonts for TRAVEL and VETERANS (built 2026-09-26)
+- The TRAVEL cell is bold ("Lvl 3", "Here", "Busy", "TRAVEL") but the
+  VETERANS cell is regular ("Lvl 5", "Unlocked"). Fix: make the VETERANS
+  cell bold too, adding VETERANS_COL to the bold set in PauseMenu's cell
+  setup. Same size (22) and alignment rules; colors unchanged. Done and
+  checked in a screenshot.
+
+Autosave completed (2026-09-26)
+- autosave.Autosave: saves every 60 s (AUTOSAVE_INTERVAL) and right after
+  every mission result (delivery, speed check, drag race, including
+  level-ups). The timer runs even while paused; saves are held during drag
+  races, which save when they end. A "Saved" note shows top-center for
+  1.5 s.
+- Game._autosave(): player.json is written synchronously (about 0.3 ms).
+  world.json is snapshotted on the game thread (shallow copy of the
+  sector table; sector lists are never mutated after put) and encoded and
+  written on a worker thread, still atomically (temp file, fsync,
+  replace). One write at a time; a request while one runs is skipped. A
+  failed write marks the store dirty again. The exit save waits for any
+  running write, then writes synchronously. World writes now use one
+  json.dumps + write instead of streaming json.dump.
+- Measured: a synchronous world save of 328 sectors took 113 ms; the
+  autosave frame now takes about 2.7 ms.
+- Tests: test_autosave.py (timing, background write reloads cleanly,
+  sectors explored during a write are kept). Suite total 80. End-to-end:
+  interval save at 60 s rewrote both files; a completed mission saved at
+  once.
+- Still possible: a crash loses at most about 60 s of exploring. Mission
+  results are saved immediately.
+
+Racing centers + island (IN PROGRESS 2026-09-26; stopped at usage limit)
+- Done:
+  - track-atlas has 5 region surfaces (track_<region>_<part>: city
+    asphalt, snow ice, rural mud, desert sand, jungle grass; parts base,
+    edge, corner, inner, start, finish) plus shared fence and tires.
+  - drag_race.TrackLevel uses the region surface with that region's grip
+    and top speed (car.SURFACES; off-track is "offtrack"). It supports laps
+    (race_length = laps x lap), 5 circuit shapes, and DragRace.lap(). The
+    rival scales that region's base car (top, and grip-limited accel,
+    brake, corner) and can take a given sprite. Tests pass.
+- Left to build (agreed design):
+  - racers.py: region stories, and 10 named rivals per region with one
+    dialogue line each.
+  - Center races: E at the center building starts race k (3-lap circuit,
+    shape k % 5). Rival scale = 1 + 0.04 x (L_k - 1), with L_k =
+    1, 2, 3, 5, 7, 9, 11, 14, 17, 20. A win advances progress (saved in
+    Progress as races won); a loss allows a retry. No mastery reward.
+    Blocked while a mission is active.
+  - HUD lap counter; result panels; return to the center after a race.
+  - Mastery page CENTER x/10 column and an island status footer.
+  - Island unlock: all 5 centers 10/10 and best region level >= 25
+    (constant, confirm with user). T on a mainland beach travels to Elite
+    Island; T on the island returns to the mainland dock. Add T to the
+    Controls page.
+  - Tests and end-to-end checks.
+- Deviation to confirm: center races are separate track levels, not
+  routes through the open world as first planned.
+
 Technical basis
 - Keep game-specific code in this marked project. Adapt game_state.py,
   input_handler.py, and collision_manager.py and compose them from main.py.

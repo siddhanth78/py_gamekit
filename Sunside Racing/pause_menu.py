@@ -49,8 +49,12 @@ SHADOW = (8, 14, 18, 150)
 
 PANEL_SIZE = {"main": (480, 560), "help": (720, 680), "mastery": (1180, 640)}
 # Mastery table: (header, x offset from the panel's left edge).
+# Mastery table: (header, x offset from the panel's left edge). Unlocks read in level
+# order: fast travel (level 3) before veteran givers (level 5).
 MASTERY_COLUMNS = (("REGION", 40), ("LEVEL", 175), ("PROGRESS", 255), ("SPEED", 470),
-                   ("VETERANS", 570), ("COMPLETED", 700), ("MISSION", 900), ("TRAVEL", 1075))
+                   ("COMPLETED", 560), ("MISSION", 765), ("TRAVEL", 950), ("VETERANS", 1050))
+COLUMN_WIDTHS = (130, 70, 200, 90, 190, 170, 84, 100)
+TRAVEL_COL, VETERANS_COL = 6, 7
 TRAVEL_BUTTON = (84, 36)
 TRAVEL_TEXT = {"ready": "TRAVEL", "here": "Here", "busy": "Busy", "locked": "Lvl 3"}
 MASTERY_ROW_GAP = 64
@@ -90,10 +94,10 @@ class PauseMenu:
         self.headers = [DynamicLabel(ctx, (160, 24), 20, bold=True) for _ in MASTERY_COLUMNS]
         for label, (text, _) in zip(self.headers, MASTERY_COLUMNS):
             label.set(text)
-        widths = (130, 70, 200, 90, 120, 190, 170, 84)
-        self.cells = [[DynamicLabel(ctx, (w, 30), 30 if c == 1 else 22, bold=c in (0, 1, 7),
-                                    align="center" if c == 7 else "left")
-                       for c, w in enumerate(widths)] for _ in range(5)]
+        self.cells = [[DynamicLabel(ctx, (w, 30), 30 if c == 1 else 22,
+                                    bold=c in (0, 1, TRAVEL_COL, VETERANS_COL),
+                                    align="center" if c == TRAVEL_COL else "left")
+                       for c, w in enumerate(COLUMN_WIDTHS)] for _ in range(5)]
         self.quads = {}
         for label in self.headers + [cell for row in self.cells for cell in row]:
             instances = get_new_instances(0, 0, 1)[2]
@@ -110,9 +114,10 @@ class PauseMenu:
         for cells, row in zip(self.cells, rows):
             done = row["completed"]
             texts = (row["region"].title(), str(row["level"]), f"{row['mastery']} / {row['need']}",
-                     f"+{row['speed']}%", "Unlocked" if row["veterans"] else "At level 5",
+                     f"+{row['speed']}%",
                      f"Del {done['delivery']}  ·  Spd {done['speed']}  ·  Drag {done['drag']}",
-                     row["mission"] or "—", TRAVEL_TEXT[row["travel"]])
+                     row["mission"] or "—", TRAVEL_TEXT[row["travel"]],
+                     "Unlocked" if row["veterans"] else "Lvl 5")
             for cell, text in zip(cells, texts):
                 cell.set(text)
 
@@ -141,7 +146,7 @@ class PauseMenu:
             left = width // 2 - PANEL_SIZE["mastery"][0] // 2
             top = height // 2 - PANEL_SIZE["mastery"][1] // 2
             ready = [i for i, row in enumerate(self.mastery_rows) if row["travel"] == "ready"]
-            x = left + MASTERY_COLUMNS[7][1] + TRAVEL_BUTTON[0] // 2
+            x = left + MASTERY_COLUMNS[TRAVEL_COL][1] + TRAVEL_BUTTON[0] // 2
             return [(x, top + 236 + i * MASTERY_ROW_GAP) for i in ready] + \
                 [(width // 2, height // 2 + 250)]
         return [(width // 2, height // 2 - 60 + i * BUTTON_GAP) for i in range(len(self.items))]
@@ -266,12 +271,12 @@ class PauseMenu:
                                    (*ACCENT, 255)))
             chosen = self.items[self.selected] == f"travel:{row['region']}"
             travel = (INK if chosen else CREAM) if row["travel"] == "ready" else MUTED
-            colors = (CREAM, ACCENT, CREAM, GOOD if row["speed"] else MUTED,
-                      GOOD if row["veterans"] else MUTED, CREAM,
-                      ACCENT if row["mission"] else MUTED, travel)
-            offsets = (0, 0, -9, 0, 0, 0, 0, 1)
+            colors = (CREAM, ACCENT, CREAM, GOOD if row["speed"] else MUTED, CREAM,
+                      ACCENT if row["mission"] else MUTED, travel,
+                      GOOD if row["veterans"] else MUTED)
+            offsets = (0, 0, -9, 0, 0, 0, 1, 0)
             for c, (label, (_, x), color, dy) in enumerate(zip(labels, MASTERY_COLUMNS, colors, offsets)):
                 # The TRAVEL cell is centered on its button; the rest are left-aligned.
-                x = left + x + (TRAVEL_BUTTON[0] // 2 if c == 7 else 0)
+                x = left + x + (TRAVEL_BUTTON[0] // 2 if c == TRAVEL_COL else 0)
                 cells.append((label, label.record(x, y + dy, color)))
         return cells

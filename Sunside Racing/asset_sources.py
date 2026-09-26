@@ -636,9 +636,22 @@ def markers() -> Atlas:
     return a
 
 
+# Region race surfaces: base, two fleck shades, line, and two curb colors.
+TRACK_SURFACES = {
+    "city": ("#3b4148", ("#474e56", "#30353b"), "#eceae0", ("#c9453c", "#f4f0e6")),    # Asphalt.
+    "snow": ("#9fc6d2", ("#c9e4ec", "#86b0bf"), "#f4f8f8", ("#3f6f9a", "#f4f8f8")),    # Ice.
+    "rural": ("#6b4f35", ("#7f6040", "#58402a"), "#d8c48e", ("#d9b75a", "#8a6440")),   # Mud.
+    "desert": ("#c9a063", ("#dab677", "#b08650"), "#f6e6ba", ("#d9803a", "#f6e6ba")),  # Packed sand.
+    "jungle": ("#4f8a45", ("#62a052", "#3f7338"), "#e8e0b0", ("#2f5f35", "#e8e0b0")),  # Worn grass.
+}
+TRACK_PARTS = ("base", "edge", "corner", "inner", "start", "finish")
+
+
 def track_tile(p: Painter, name: str):
-    """Race-level tiles, 64 px. Edge art sits on the north side; the engine rotates it."""
-    asphalt, line = "#3b4148", "#eceae0"
+    """Race-level tiles, 64 px. Edge art sits on the north side; the engine rotates it.
+
+    Surface tiles are named track_<surface>_<part>; track_fence and track_tires are shared.
+    """
     if name == "track_fence":
         p.rect(0, 26, 64, 42, "#24414a")                  # Concrete barrier wall.
         p.rect(0, 22, 64, 38, "#b9bdb8")
@@ -652,41 +665,50 @@ def track_tile(p: Painter, name: str):
             p.ellipse(cx, cy, 10, 10, "#23282c")
             p.ellipse(cx, cy, 5, 5, "#4a5157")
         return
-    p.rect(0, 0, 64, 64, asphalt)
-    p.flecks(900 + sum(map(ord, name)), 18, ("#474e56", "#30353b"))
+    _, surface, part = name.split("_")
+    base, flecks, line, (curb_a, curb_b) = TRACK_SURFACES[surface]
+    p.rect(0, 0, 64, 64, base)
+    p.flecks(900 + sum(map(ord, name)), 22, flecks)
+    if surface == "snow":
+        for x, y in ((6, 20), (30, 44), (40, 12)):
+            p.rect(x, y, x + 16, y + 2, "#e2f2f6")        # Polished ice streaks.
+    elif surface == "rural":
+        for y in (22, 42):
+            p.rect(0, y, 64, y + 2, "#4f3a26")            # Wheel ruts.
+
     def curb(horizontal: bool):
         for i in range(0, 64, 8):
-            color = "#c9453c" if (i // 8) % 2 == 0 else "#f4f0e6"
+            color = curb_a if (i // 8) % 2 == 0 else curb_b
             if horizontal:
                 p.rect(i, 0, i + 8, 5, color)
             else:
                 p.rect(0, i, 5, i + 8, color)
-    if name in ("track_edge", "track_corner"):
+    if part in ("edge", "corner"):
         curb(True)
         p.rect(0, 5, 64, 8, line)
-    if name == "track_corner":
+    if part == "corner":
         curb(False)
         p.rect(5, 5, 8, 64, line)
-    elif name == "track_inner":
-        p.rect(0, 0, 8, 8, "#c9453c")                     # Curb nub on the inside apex.
+    elif part == "inner":
+        p.rect(0, 0, 8, 8, curb_a)                        # Curb nub on the inside apex.
         p.rect(8, 0, 11, 11, line)
         p.rect(0, 8, 11, 11, line)
-    elif name == "track_start":
+    elif part == "start":
         p.rect(28, 0, 36, 64, line)                       # Line across the track (N-S).
-    elif name == "track_finish":
+    elif part == "finish":
         for j in range(0, 64, 8):
             for i in (24, 32):
                 p.rect(i, j, i + 8, j + 8, line if (i // 8 + j // 8) % 2 == 0 else "#1d2226")
 
 
-TRACK_TILES = ("track_asphalt", "track_edge", "track_corner", "track_inner",
-               "track_start", "track_finish", "track_fence", "track_tires")
+TRACK_TILES = tuple(f"track_{surface}_{part}" for surface in TRACK_SURFACES
+                    for part in TRACK_PARTS) + ("track_fence", "track_tires")
 
 
 def track() -> Atlas:
-    a = Atlas("track-atlas", 64, 4, 2)
+    a = Atlas("track-atlas", 64, 8, 4)
     for i, name in enumerate(TRACK_TILES):
-        track_tile(a.tile(name, i % 4, i // 4), name)
+        track_tile(a.tile(name, i % 8, i // 8), name)
     return a
 
 

@@ -12,6 +12,7 @@ if str(TOOLKIT_ROOT) not in sys.path:
 import moderngl
 import pygame
 
+from autosave import Autosave
 from car import TOP_SPEED, Car
 from collision_manager import CollisionManager, nearest_clear_spot
 from drag_race import DragRace
@@ -93,6 +94,7 @@ class Game:
         self.race_over = 0.0        # Seconds the finished race has been showing its result.
         self.clock = 0.0
         self.pending_offer = None   # Giver whose offer the panel is showing.
+        self.autosave = Autosave()
         if self.walker:
             # Resume a session saved on foot: parked car solid, camera already zoomed in.
             self._spawn_walker_entity()
@@ -151,6 +153,7 @@ class Game:
         self.state.set_player_pose(self.player_id, self.car.x, self.car.y, self.car.heading)
 
     def _show_result(self, result):
+        self.autosave.request()  # Lock in mastery and offers right away.
         self.panel.show_result(result)
         if not result["success"] and self.race is None:
             self._return_to_giver(result["giver"])
@@ -220,6 +223,9 @@ class Game:
 
     def update(self, dt):
         self.clock += dt
+        # Runs even while paused; drag races are skipped (they save when they end).
+        if self.autosave.tick(dt, allowed=self.race is None):
+            self._autosave()
         if self.menu.open or self.panel.open:
             return
         if self.race:
@@ -268,6 +274,7 @@ class Game:
                 result = self.missions.finish_drag(won, detail)
                 self.race = None
                 self._return_to_giver(giver)  # Leaving the level puts you back at the giver.
+                self.autosave.request()
                 self.panel.show_result(result)
 
     # Render -----------------------------------------------------------------------
@@ -318,7 +325,7 @@ class Game:
             prompt = "Q   Call car"
         self.hud.top_speed = TOP_SPEED * self.missions.progress.speed_scale(region)
         self.hud.render(car.speed, region, guide, prompt, show_speed=walker is None,
-                        mission=self.missions.status())
+                        mission=self.missions.status(), toast=self._toast())
         point = target or (center[1:] if center else None)
         if point and not (self.menu.open or self.panel.open):
             # Drawn last so nothing in the world or HUD can cover it.
@@ -348,8 +355,16 @@ class Game:
                         mission=("DRAG RACE", f"{place}  ·  {max(0.0, race.clock):.1f} s"),
                         banner=banner)
 
+    def _toast(self):
+        return "Saved" if self.autosave.toast > 0 else ""
+
+    def _autosave(self):
+        """Player state is tiny and saved now; the world file is written in the background."""
+        self.player_save.save(self.car, self.walker, self.missions.to_dict())
+        self.world_store.save(background=True)
+
     def save(self):
-        self.world_store.save()
+        self.world_store.save()  # Waits for any background autosave first.
         # An ongoing mission (even mid-race) is saved as queued at its giver.
         self.player_save.save(self.car, self.walker, self.missions.to_dict())
 

@@ -1,4 +1,8 @@
-"""Drag race missions: a separate, empty level (straight or single-lap circuit) and an AI rival.
+"""Race levels: separate, empty tracks (straight or circuit) with one AI rival.
+
+Used by drag race missions (a quarter mile or a single lap) and racing-center races
+(3 laps). Each track uses its region's surface (city asphalt, snow ice, rural mud,
+desert sand, jungle grass) with that region's grip and top speed.
 
 TrackLevel stands in for World while racing: the player's Car and CollisionManager use its
 region_at, can_place_car, and nearby_obstacles, so driving and crashes work unchanged.
@@ -9,7 +13,7 @@ from __future__ import annotations
 import math
 import random
 
-from car import ACCELERATION, BRAKING, TOP_SPEED, Car
+from car import ACCELERATION, BRAKING, SURFACES, Car
 from collision_manager import CollisionManager
 from world import TILE_SIZE, Sprite
 
@@ -23,12 +27,14 @@ CIRCUITS = (
     ((0, 0), (26, 0), (26, 14), (0, 14)),
     ((0, 0), (28, 0), (28, 10), (14, 10), (14, 18), (0, 18)),
     ((0, 0), (28, 0), (28, 18), (20, 18), (20, 8), (8, 8), (8, 18), (0, 18)),
+    ((0, 0), (20, 0), (20, 6), (30, 6), (30, 16), (12, 16), (12, 10), (0, 10)),
+    ((0, 0), (34, 0), (34, 10), (0, 10)),
 )
-THEMES = {  # Giver region -> (off-track ground tile, off-track surface for grip).
-    "city": ("city_concrete", "city"), "rural": ("rural_grass", "rural"),
-    "snow": ("snow", "snow"), "desert": ("desert_sand", "desert"),
-    "jungle": ("jungle_ground", "jungle"),
-}
+# Region -> off-track ground tile. The track itself is that region's surface, driven with
+# the region's grip and top speed (car.SURFACES); the runoff off the track is slower.
+THEMES = {"city": "city_concrete", "rural": "rural_grass", "snow": "snow",
+          "desert": "desert_sand", "jungle": "jungle_ground"}
+OFF_TRACK = "offtrack"        # Not in car.SURFACES, so it drives with car.OFF_SURFACE.
 COUNTDOWN = 3.0
 CORNER_SPEED = 70.0           # AI corner speed at scale 1; a clean player line carries more.
 AI_TURN_RATE = 300.0
@@ -55,9 +61,11 @@ def _cells_along(corners, closed):
 
 
 class TrackLevel:
-    def __init__(self, kind: str, theme: str, shape: int = 0):
+    def __init__(self, kind: str, theme: str, shape: int = 0, laps: int = 1):
         self.kind = kind
-        self.ground, self.off_surface = THEMES.get(theme, THEMES["city"])
+        self.surface = theme if theme in THEMES else "city"
+        self.ground = THEMES[self.surface]
+        self.laps = laps if kind == "circuit" else 1
         if kind == "straight":
             corners = [(0, 0), (STRAIGHT_LEAD + STRAIGHT_RACE_TILES + STRAIGHT_RUNOFF, 0)]
             self.closed = False
@@ -106,9 +114,9 @@ class TrackLevel:
                     on_line = abs(ty - start_row) <= TRACK_HALF
                     if on_line and tx == start_col:
                         # A single lap starts and ends on the same checkered line.
-                        name, rotation = ("track_finish" if self.closed else "track_start"), 0.0
+                        name, rotation = self._tile("finish" if self.closed else "start"), 0.0
                     elif on_line and not self.closed and tx == start_col + STRAIGHT_RACE_TILES:
-                        name, rotation = "track_finish", 0.0
+                        name, rotation = self._tile("finish"), 0.0
                     sprites.append(Sprite("track-atlas", name, x, y, TILE_SIZE, TILE_SIZE, rotation))
                     continue
                 # Barriers wall off the track on both sides; tire stacks fill the corners.
@@ -132,18 +140,22 @@ class TrackLevel:
         off = [side for side, (dx, dy) in (("N", (0, -1)), ("S", (0, 1)), ("W", (-1, 0)), ("E", (1, 0)))
                if (tx + dx, ty + dy) not in self.track]
         if len(off) == 1:
-            return "track_edge", EDGE_ROTATION[off[0]]
+            return self._tile("edge"), EDGE_ROTATION[off[0]]
         if len(off) == 2 and frozenset(off) in CORNER_ROTATION:
-            return "track_corner", CORNER_ROTATION[frozenset(off)]
+            return self._tile("corner"), CORNER_ROTATION[frozenset(off)]
         missing = [d for d in DIAGONALS if (tx + d[0], ty + d[1]) not in self.track]
         if not off and len(missing) == 1:
-            return "track_inner", DIAGONALS[missing[0]]
-        return "track_asphalt", 0.0
+            return self._tile("inner"), DIAGONALS[missing[0]]
+        return self._tile("base"), 0.0
+
+    def _tile(self, part):
+        return f"track_{self.surface}_{part}"
 
     # World stand-in -------------------------------------------------------------
 
     def region_at(self, x, y):
-        return "track" if (int(x // TILE_SIZE), int(y // TILE_SIZE)) in self.track else self.off_surface
+        on_track = (int(x // TILE_SIZE), int(y // TILE_SIZE)) in self.track
+        return self.surface if on_track else OFF_TRACK
 
     def can_place_car(self, rect):
         return 0 <= rect[0] <= self.width and 0 <= rect[1] <= self.height
@@ -194,19 +206,22 @@ class TrackLevel:
 
     @property
     def race_length(self):
-        return self.finish_x - self.start_x if not self.closed else self.lap_length
+        return self.finish_x - self.start_x if not self.closed else self.lap_length * self.laps
 
 
 class Rival:
     """Follows the centerline (inside lane): full throttle on straights, brakes for corners."""
 
-    def __init__(self, level: TrackLevel, scale: float, player_top: float, rng: random.Random):
+    def __init__(self, level: TrackLevel, scale: float, rng: random.Random, sprite: str | None = None):
         self.level = level
-        self.name = rng.choice(RIVALS)
-        self.top = player_top * scale
-        self.accel = ACCELERATION * scale
-        self.brake = BRAKING * 0.6 * scale
-        self.corner = CORNER_SPEED * scale
+        self.name = sprite or rng.choice(RIVALS)
+        # Scale the base car on this surface (not the player's upgrades: levels are the
+        # player's edge). Grip limits acceleration, braking, and cornering, as for the player.
+        grip, top = SURFACES[level.surface]
+        self.top = top * scale
+        self.accel = ACCELERATION * grip * scale
+        self.brake = BRAKING * 0.6 * grip * scale
+        self.corner = CORNER_SPEED * grip * scale
         self.reaction = rng.uniform(0.2, 0.6)
         points = level.path + (level.path[:1] if level.closed else [])
         self.points = points
@@ -270,14 +285,15 @@ class Rival:
 class DragRace:
     """One race: countdown, both racers go, first across the finish wins."""
 
-    def __init__(self, track: dict, scale: float, speed_scale: float, seed: int):
+    def __init__(self, track: dict, scale: float, speed_scale: float, seed: int,
+                 rival_sprite: str | None = None):
         rng = random.Random(seed)
-        self.level = TrackLevel(track["kind"], track.get("theme", "city"), track.get("shape", 0))
+        self.level = TrackLevel(track["kind"], track.get("theme", "city"), track.get("shape", 0),
+                                track.get("laps", 1))
         self.speed_scale = speed_scale
         x, y, heading = self.level.start_pose(-1)
         self.car = Car(x=x, y=y, heading=heading)
-        # The rival scales the base car, not the player's upgrades: levels are the player's edge.
-        self.rival = Rival(self.level, scale, TOP_SPEED, rng)
+        self.rival = Rival(self.level, scale, rng, rival_sprite)
         self.collisions = CollisionManager(None, self.level)
         self.clock = -COUNTDOWN     # Negative while counting down.
         self.player_progress = self.level.progress_of(x, y, -1.5 * TILE_SIZE) \
@@ -313,6 +329,12 @@ class DragRace:
 
     def position(self):
         return 1 if self.player_progress >= self.rival.progress else 2
+
+    def lap(self):
+        """Current lap (1-based) of the player, for multi-lap races."""
+        if not self.level.closed:
+            return 1
+        return max(1, min(self.level.laps, int(self.player_progress // self.level.lap_length) + 1))
 
     def sprites(self, camera_x, camera_y, width, height):
         return self.level.visible_sprites(camera_x, camera_y, width, height) + [self.rival.sprite()]

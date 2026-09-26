@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from pathlib import Path
 
 
@@ -22,6 +23,7 @@ class WorldStore:
         self.seed = default_seed
         self.sectors: dict[str, list] = {}
         self.dirty = not self.path.exists()
+        self._writer: threading.Thread | None = None
         if self.path.exists():
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
@@ -49,12 +51,40 @@ class WorldStore:
         self.sectors[self.key(sx, sy)] = sprites
         self.dirty = True
 
-    def save(self):
+    def save(self, background: bool = False):
+        """Write world.json atomically if anything changed.
+
+        background=True snapshots the sector table here and does the encoding and
+        disk write on a worker thread, so autosaves do not stall the frame. Only one
+        write runs at a time; a request while one is running is skipped (the next
+        autosave or the exit save picks the changes up).
+        """
+        if self._writer is not None and self._writer.is_alive():
+            if not background:
+                self._writer.join()  # Exit save: let the running write finish first.
+            else:
+                return False
         if not self.dirty:
-            return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+            return False
+        # Sector lists are never mutated after put(), so a shallow copy is a safe snapshot.
         payload = {"version": SAVE_VERSION, "generator": GENERATOR_VERSION,
-                   "seed": self.seed, "sectors": self.sectors}
+                   "seed": self.seed, "sectors": dict(self.sectors)}
+        self.dirty = False
+        if not background:
+            self._write(payload)
+            return True
+        self._writer = threading.Thread(target=self._write, args=(payload,), daemon=True)
+        self._writer.start()
+        return True
+
+    def wait(self):
+        """Block until a background write finishes."""
+        if self._writer is not None:
+            self._writer.join()
+
+    def _write(self, payload):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        text = json.dumps(payload, separators=(",", ":"), allow_nan=False) + "\n"
         temp_path = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -62,12 +92,13 @@ class WorldStore:
                 prefix=".world-", suffix=".tmp", delete=False,
             ) as temp_file:
                 temp_path = Path(temp_file.name)
-                json.dump(payload, temp_file, separators=(",", ":"), allow_nan=False)
-                temp_file.write("\n")
+                temp_file.write(text)  # One write; streaming json.dump is much slower.
                 temp_file.flush()
                 os.fsync(temp_file.fileno())
             os.replace(temp_path, self.path)
-            self.dirty = False
+        except BaseException:
+            self.dirty = True  # Nothing was saved; try again next time.
+            raise
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)

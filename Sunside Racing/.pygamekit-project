@@ -9,6 +9,7 @@
   "files": {
     "code": [
       "asset_sources.py",
+      "autosave.py",
       "car.py",
       "collision_manager.py",
       "drag_race.py",
@@ -24,6 +25,7 @@
       "pedestrians.py",
       "player_save.py",
       "progression.py",
+      "test_autosave.py",
       "test_missions.py",
       "test_parking.py",
       "test_pedestrians.py",
