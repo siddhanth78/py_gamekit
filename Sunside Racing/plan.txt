@@ -809,6 +809,125 @@ Car ratings (2026-09-26)
 - Tests: rating values, frozen drag rating across level-ups and saves,
   labels, and real-key checks of both panels.
 
+Generated ratings and rating-gap difficulty (2026-09-26)
+- Supersedes the rival parts of "Car ratings" and "Offer-time difficulty"
+  above: rivals are no longer "scale x the player's car".
+- Balance rule (progression.RATING_EDGE = 10): a rival rated R is calibrated
+  (straights and circuits alike) so a flawless driver rated R - 10 (flat
+  out, every corner cut) just wins, by 0.5%. So a rival at or below your
+  rating is Easy, up to +10 is Medium (a clean, corner-cutting race wins),
+  and beyond +10 is Hard (level up first). rating_difficulty labels this.
+- Drag offers roll the rival's rating once: the player's rating in that
+  region at offer time plus -10..+15 (veterans 0..+15), saved as
+  Offer.rating. The label compares it with the player's rating now.
+  Offers saved before this convert from scale x the rating then, clamped
+  to the range; the player's city offer became 125 (Medium at 120).
+- Center races: RIVAL_RATINGS = 100, 110, 120, 140, 150, 170 (gentle),
+  then 220, 260, 300, 350 (steep), the user's ladder. Same in every
+  region. The champion (350) needs rating 340 = level 25. REQUIRED_LEVELS is gone;
+  the lost-race panel shows "<Rival> (R) VS You (r)".
+- Time trials and deliveries are unchanged.
+- Tests: drag rating ranges, labels by gap, saved conversions, straight
+  races won at R-10 and lost at R-25, circuit calibration, every center
+  race won flawlessly at R-10 and lost at R-20, real-key panels.
+
+Realistic rival calibration (2026-09-26)
+- User report: nearly lost to a 125 circuit rival at 120 but beat a 131
+  straight rival easily. Straights gave a free RATING_EDGE (holding
+  throttle is already flawless) plus the rival's 0.2-0.6 s start delay, so
+  the "131" drove like a 120. Circuits were calibrated to flawless_time's
+  flat-out, apex-to-apex model, which a human can't reach (a good lap is
+  ~3.6% slower), so they played ~10 rating points harder than labeled.
+- Straights: a rival rated R is a car rated R; a flat-out player rated R
+  just wins (0.5%). Drag labels on straights: at or below you Easy, above
+  Hard (no corners to cut, so no Medium band).
+- Circuits and center races: a rival rated R just loses to a clean lap
+  rated R - 10, where a clean lap is CLEAN_LAP = 1.04 x the model.
+- The rival's start delay is now part of the calibration everywhere
+  (calibrated_scale(..., reaction=True)), so it no longer hands out wins.
+- Replays: the 131 straight now beats a flat-out 120 and 125 and loses to
+  131; the 125 circuit rival finishes 18.75 s (was 18.37 s).
+
+Declining gives an easier offer (2026-09-26)
+- Before: DECLINE (and Escape) just closed the panel; the offer stayed.
+- DECLINE now makes the giver swap in an easier offer (Offer.eased,
+  saved): drag rivals rated -10..0 of the player's rating, time trials and
+  deliveries scale 0.5-0.79 (always Easy), veterans included. It pays half
+  the mastery, rounded up (reward_for), and the panel says "easier offer,
+  half reward". The first decline shows the easier offer at once;
+  declining an easier offer quietly rolls another easy one. Completing any
+  offer brings back full offers. Center races are unaffected.
+- Escape now just walks away from an offer panel without declining.
+- Tests: eased offers are Easy and paid half, saved, reset on completion;
+  real-key flow for decline, re-decline, and Escape.
+
+Honest rivals: rating = speed, racing line, tuned braking (2026-09-26)
+- User report: a 114 circuit rival caught a 120 on the straights. Circuit
+  rivals had 40-60% more top speed and acceleration than their rating,
+  to make up for braking hard and skipping cuts.
+- Curbs (making all cuts worth +10) were rejected before coding: cutting
+  every corner is worth ~55-95 rating points, so curbs would have sat
+  5-14 px inside the natural line.
+- Rated rivals (drag missions and center races) now drive exactly like a
+  car of their rating: rating top speed, the player's acceleration.
+  Straights: no corners, no start delay; a flat-out player at the same
+  rating ties and wins.
+- Circuits: rivals take a racing line, drifting from mid-straight (at most
+  CUT_REACH = 5 tiles) to each apex and back. They hold the inside between
+  same-way corners on short straights and stay centered on long ones.
+  (Superseded below: they now cut half the corners.)
+  Their one tuned imperfection is corner speed (calibrated_corner):
+  a clean lap (CLEAN_LAP x flawless model) rated 10 below just wins. If
+  even no braking is too slow, they never brake and are slightly easier.
+- Off-day: each attempt the rival loses 10 x u^3 rating points (u uniform
+  0-1, rerolled per attempt; median ~1.25), so +11..+20 is winnable
+  only with luck, and +20 is not.
+- Bands: circuits Easy <= 0, Medium +1..+10, Hard beyond. Straights Easy
+  <= 0, Hard above (only off-days help); straight drag offers roll
+  -10..+10, circuits -10..+15.
+- Center ladder unchanged (100 ... 350): the champion loses narrowly to a
+  clean race rated 340 (level 25).
+- Replay of the user's size-5 circuit at rating 120 (clean lap ~18.3 s):
+  a 114 finishes 19.47 s (top 180 vs 184 px/s), a 125 finishes 18.73 s, and
+  a 131 finishes 18.38 s.
+- Rival update and placement use forward pointers (O(1) per tick) and
+  calibration integrates speed along the path, so setup takes <0.05 s.
+
+Rivals cut half the corners (2026-09-26)
+- User request: rivals cut each corner with 50% chance, so the player gets
+  occasional openings to overtake.
+- RIVAL_CUT = 0.5 (seeded per race). A missed cut is not the centerline
+  corner but a slightly wide line: apex WIDE_APEX = 60 px in (full cut 84),
+  leaving about a car's width (24 px) on the inside.
+- Measured trade-off (user chose the tight gap): a 44 px gap (40 px apex)
+  made rivals ~11 points easier on drag circuits (up to 26) and ~15 at
+  the top of the ladder. At 60 px: drag median 3 easier (worst 14), center
+  races 8-10 median 0 (worst 6). The user's 125 circuit rival: 19.27 s.
+- Tests: rivals cut about half the corners; every center race is won by a
+  clean lap 10 below and lost 20 below; drag circuit rival never harder
+  than its rating and within 15 points of it.
+
+Repeated declines (2026-09-26)
+- Supersedes the single-decline rules above ("half the mastery, rounded
+  up"; "declining an easier offer quietly rolls another").
+- Offer.declines counts declines (saved; older saves' "eased": true loads
+  as 1). Each DECLINE swaps in a new Easy offer and shows it at once. Every
+  reward halves per decline, rounded down, never below 1: 10 -> 5 -> 2 -> 1,
+  5 -> 2 -> 1, veteran 14 -> 7 -> 3 -> 1.
+- Once the headline reward (delivery 75+, time trial, drag win) is 1, the
+  panel shows only ACCEPT (Missions.can_decline). An offer already paying 1
+  can't be declined. Completing any offer brings back full offers.
+- Tests: reward chains, no decline at 1, save round-trip and old saves,
+  real-key flow declining 5 -> 2 -> 1 until only ACCEPT remains.
+
+Bumping the rival keeps momentum (2026-09-26)
+- Before: any collision (walls or the rival) set the player's speed to 0.
+- Now, in races, if the player bumps the rival while holding the throttle
+  (the step forward is clear except for the rival), speed drops to
+  RIVAL_BUMP_SPEED = 20 px/s instead of 0. It stays at 20 while pushing,
+  then builds again once the rival pulls away. Off the throttle, or into
+  walls, the car still stops dead. Tested.
+
 Technical basis
 - Keep game-specific code in this marked project. Adapt game_state.py,
   input_handler.py, and collision_manager.py and compose them from main.py.

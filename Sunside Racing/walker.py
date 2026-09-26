@@ -43,9 +43,10 @@ class Walker:
         self.speed = RUN_SPEED if run else WALK_SPEED
         step = self.speed * min(max(dt, 0.0), 0.05)
         start = (self.x, self.y)
+        can_walk = getattr(collisions, "can_walk", collisions.can_move)  # Piers are walkable.
         for tx, ty in ((self.x + dx * step, self.y + dy * step),
                        (self.x + dx * step, self.y), (self.x, self.y + dy * step)):
-            if (tx, ty) != (self.x, self.y) and collisions.can_move(self.collision_record(tx, ty)):
+            if (tx, ty) != (self.x, self.y) and can_walk(self.collision_record(tx, ty)):
                 self.x, self.y = tx, ty
                 break
         moved = math.dist(start, (self.x, self.y))

@@ -55,6 +55,10 @@ class CollisionManager:
     def can_move(self, player_rect):
         return self.world.can_place_car(player_rect) and not self.colliding_obstacles(player_rect)
 
+    def can_walk(self, walker_rect):
+        """Like can_move, but people may also stand on the fishing piers."""
+        return self.world.can_place_walker(walker_rect) and not self.colliding_obstacles(walker_rect)
+
     def update(self, entity_id, player_rect):
         previous = self.current_collisions.get(entity_id, set())
         current = self.colliding_obstacles(player_rect)

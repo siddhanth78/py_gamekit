@@ -14,8 +14,9 @@ from dataclasses import dataclass
 
 from car import OFF_SURFACE, SURFACES, TOP_SPEED
 from collision_manager import CollisionManager, nearest_clear_spot
-from progression import (FAST_TRAVEL_LEVEL, REGIONS, SPEED_PER_LEVEL, Progress, rating, rating_speed,
-                         reward, show_rating)
+from fishing import FishLog
+from progression import (FAST_TRAVEL_LEVEL, FISHING_LEVEL, RATING_EDGE, REGIONS, SPEED_PER_LEVEL, Progress, rating,
+                         rating_difficulty, reward)
 from walker import Walker
 from world import CENTERS, SECTOR_SIZE, SECTORS, TILE_SIZE, Sprite
 
@@ -24,8 +25,12 @@ TYPES = ("delivery", "speed", "drag")
 # The "speed" key is the time trial (it was once called the speed check); saves use the key.
 TITLES = {"delivery": "Delivery", "speed": "Time Trial", "drag": "Drag Race"}
 BASE_REWARD = {"delivery": 2, "speed": 1, "drag": 3}
+TRADE_REGION = "jungle"   # Fish traders live in the jungle camps and pay jungle mastery.
 MAX_SCALE = 1.25
-MAX_DRAG_SCALE = 1.15   # Drag rivals above this were too hard to beat.  # Delivery at 75+ points; 1 at 50+.
+DRAG_RATING_GAP = (-10, 15)   # Drag rivals: rated this far from the player's rating when offered.
+STRAIGHT_RATING_GAP = (-10, 10)  # Straights have no corners: above +10 not even an off-day wins.
+EASED_RATING_GAP = (-10, 0)   # After a decline: never above the player.
+EASED_SCALE = 0.79            # After a decline, time trials and deliveries roll 0.5 up to this (Easy).  # Delivery at 75+ points; 1 at 50+.
 DELIVERY_PENALTY = {"Easy": 5, "Medium": 10, "Hard": 15}
 DELIVERY_TIERS = ((75, 2), (50, 1))
 CRASH_GRACE = 1.0            # Seconds after a crash before another one counts.
@@ -73,11 +78,18 @@ class Offer:
     # clocks are fixed to the player's car at that moment, so leveling up afterwards
     # makes the same offer easier.
     levels: dict | None = None
+    rating: int | None = None                   # Drag: the rival's rating.
+    declines: int = 0                           # Times declined: Easy, reward halved each time.
+
+    @property
+    def eased(self) -> bool:
+        return self.declines > 0
 
     def to_dict(self):
         return {"type": self.type, "scale": self.scale,
                 "target": list(self.target) if self.target else None,
-                "track": self.track, "seed": self.seed, "levels": self.levels}
+                "track": self.track, "seed": self.seed, "levels": self.levels, "rating": self.rating,
+                "declines": self.declines}
 
     @classmethod
     def from_dict(cls, giver_id, data):
@@ -104,8 +116,14 @@ class Offer:
                 region in REGIONS and type(level) is int and level >= 1
                 for region, level in levels.items())):
             raise ValueError("bad levels")
+        rival = data.get("rating")
+        if rival is not None and not (type(rival) is int and 1 <= rival <= 1000):
+            raise ValueError("bad rating")
+        declines = data.get("declines", 1 if data.get("eased") is True else 0)  # "eased": older saves.
+        if not (type(declines) is int and 0 <= declines <= 10):
+            raise ValueError("bad declines")
         return cls(giver_id, data["type"], float(scale), target, track, int(data.get("seed", 0)),
-                   levels)
+                   levels, rival, declines)
 
 
 class ActiveMission:
@@ -127,6 +145,7 @@ class Missions:
         self.seed = seed
         data = data if isinstance(data, dict) else {}
         self.progress = Progress(data.get("progress"))
+        self.fish = FishLog(data.get("fish"))
         self.counter = data.get("counter") if type(data.get("counter")) is int else 0
         self.givers = self._place_givers()
         self.by_id = {g.id: g for g in self.givers}
@@ -135,12 +154,7 @@ class Missions:
             if giver_id in self.by_id:
                 try:
                     parsed = Offer.from_dict(giver_id, offer)
-                    if parsed.type == "drag":
-                        # Offers saved before the drag cap waiting at givers get it too.
-                        parsed.scale = min(parsed.scale, MAX_DRAG_SCALE)
-                    if parsed.levels is None:
-                        # Saved before offers recorded levels: fix them to today's.
-                        parsed.levels = dict(self.progress.levels)
+                    self._snapshot(parsed)
                     if parsed.type == self.by_id[giver_id].type:
                         self.offers[giver_id] = parsed
                 except (ValueError, TypeError):
@@ -194,20 +208,44 @@ class Missions:
     def offer_for(self, giver: Giver) -> Offer:
         if giver.id not in self.offers:
             self.offers[giver.id] = self._new_offer(giver)
+        return self._snapshot(self.offers[giver.id])
+
+    def can_decline(self, offer: Offer) -> bool:
+        """Declining halves the reward (rounded down, never below 1); an offer already
+        paying 1 mastery can't be declined."""
+        return self.reward_for(offer, BASE_REWARD[offer.type]) > 1
+
+    def decline(self, giver: Giver) -> Offer:
+        """The player turned the offer down: the giver swaps in an easy one paying half as
+        much as this one (10 -> 5 -> 2 -> 1). Completing any offer brings full ones back."""
+        offer = self.offer_for(giver)
+        if self.can_decline(offer):
+            self.offers[giver.id] = self._new_offer(giver, offer.declines + 1)
         return self.offers[giver.id]
 
-    def _new_offer(self, giver: Giver) -> Offer:
+    def _new_offer(self, giver: Giver, declines: int = 0) -> Offer:
+        eased = declines > 0
         self.counter += 1
         rng = random.Random(f"{self.seed}-{giver.id}-{self.counter}")
-        top = MAX_DRAG_SCALE if giver.type == "drag" else MAX_SCALE
-        scale = round(rng.uniform(0.8 if giver.harder else 0.5, top), 3)
+        if eased:
+            scale = round(rng.uniform(0.5, EASED_SCALE), 3)   # Always labeled Easy.
+        else:
+            scale = round(rng.uniform(0.8 if giver.harder else 0.5, MAX_SCALE), 3)
         seed = rng.randrange(1 << 30)
         if giver.type == "drag":
             kind = rng.choice(("straight", "circuit"))
             track = {"kind": kind, "theme": giver.region}
             if kind == "circuit":
                 track.update(seed=seed, size=rng.randint(4, 7))  # Its own generated layout.
-            return Offer(giver.id, "drag", scale, None, track, seed, dict(self.progress.levels))
+            # The rival is rated around the player's rating now, and keeps it; veterans'
+            # rivals are never below the player. Eased offers are never above them.
+            low, high = (EASED_RATING_GAP if eased else
+                         STRAIGHT_RATING_GAP if kind == "straight" else DRAG_RATING_GAP)
+            if giver.harder and not eased:
+                low = 0
+            rival = self.progress.rating(giver.region) + rng.randint(low, high)
+            return Offer(giver.id, "drag", 1.0, None, track, seed, dict(self.progress.levels), rival,
+                         declines)
         low, high = DELIVERY_DISTANCE if giver.type == "delivery" else SPEED_DISTANCE
         collisions = CollisionManager(None, self.world)
         for _ in range(40):
@@ -220,12 +258,24 @@ class Missions:
                 continue
             spot = self._open_spot(collisions, x, y, clearance=32)
             if spot and low * 0.8 <= math.dist(spot, (giver.x, giver.y)):
-                return Offer(giver.id, giver.type, scale, spot, None, seed, dict(self.progress.levels))
+                return Offer(giver.id, giver.type, scale, spot, None, seed, dict(self.progress.levels),
+                             declines=declines)
         # Fall back to another racing center, which always has open ground around it.
         sector = rng.choice([s for s, n in CENTERS.items() if n != "center_island"])
         cx, cy = self.world.center_position(*sector)
         return Offer(giver.id, giver.type, scale, self._open_spot(collisions, cx, cy + 220), None, seed,
-                     dict(self.progress.levels))
+                     dict(self.progress.levels), declines=declines)
+
+    def _snapshot(self, offer: Offer) -> Offer:
+        """Fill in what offers saved (or built) before levels and drag ratings lack."""
+        if offer.levels is None:
+            offer.levels = dict(self.progress.levels)
+        if offer.type == "drag" and offer.rating is None:
+            # The old scale x the rating then, kept within DRAG_RATING_GAP.
+            base = rating(offer.levels.get(self.by_id[offer.giver_id].region, 1))
+            low, high = DRAG_RATING_GAP
+            offer.rating = max(base + low, min(base + high, int(round(offer.scale * base, 6) + 0.5)))
+        return offer
 
     def offer_multiplier(self, offer: Offer, region: str | None = None) -> float:
         """The player's top-speed multiplier in region (default: the giver's) when offered."""
@@ -233,27 +283,20 @@ class Missions:
         level = (offer.levels or self.progress.levels).get(region, 1)
         return 1.0 + SPEED_PER_LEVEL * (level - 1)
 
-    def rival_rating(self, offer: Offer) -> float:
-        """Drag rival rating: the offer's scale times the player's rating when offered
-        (1.15 at level 2 = 1.15 x 110 = 126.5). It never changes afterwards."""
-        region = self.by_id[offer.giver_id].region
-        return offer.scale * rating((offer.levels or self.progress.levels).get(region, 1))
-
-    def rival_multiplier(self, offer: Offer) -> float:
-        """Drag rival speed vs a stock car, from its rating."""
-        return rating_speed(self.rival_rating(offer))
-
     def effective_scale(self, offer: Offer) -> float:
-        """Difficulty against the player's car now: drag compares ratings, time trials compare
-        top speeds. Both get easier as the player levels past the offer; deliveries don't."""
-        region = self.by_id[offer.giver_id].region
-        if offer.type == "drag":
-            return self.rival_rating(offer) / self.progress.rating(region)
+        """Time trials and deliveries: difficulty against the player's car now. Time trials
+        get easier as the player levels past the offer; deliveries don't."""
         if offer.type == "speed":
+            region = self.by_id[offer.giver_id].region
             return offer.scale * self.offer_multiplier(offer) / self.progress.speed_scale(region)
         return offer.scale
 
     def label(self, offer: Offer) -> str:
+        if offer.type == "drag":
+            region = self.by_id[offer.giver_id].region
+            # Straights have no corners to cut: anything rated above the player is Hard.
+            edge = RATING_EDGE if offer.track.get("kind") == "circuit" else 0
+            return rating_difficulty(offer.rating - self.progress.rating(region), edge)
         return difficulty(self.effective_scale(offer))
 
     def speed_limit(self, offer: Offer, start) -> float:
@@ -272,7 +315,10 @@ class Missions:
 
     def reward_for(self, offer: Offer, base: int) -> int:
         giver = self.by_id[offer.giver_id]
-        return reward(base, self.progress.levels[giver.region], giver.harder)
+        full = reward(base, self.progress.levels[giver.region], giver.harder)
+        if full <= 0:
+            return 0
+        return max(1, full >> offer.declines)   # Halved per decline, rounded down, at least 1.
 
     def preview(self, offer: Offer) -> dict:
         """What the offer panel shows."""
@@ -295,9 +341,11 @@ class Missions:
         else:
             track = "quarter-mile straight" if offer.track["kind"] == "straight" else "single-lap circuit"
             lines["detail"] = f"Race a rival on a {track}"
-            lines["rules"] = (f"Rival ({show_rating(self.rival_rating(offer))}) VS "
-                              f"You ({self.progress.rating(giver.region)})")
+            lines["rules"] = f"Rival ({offer.rating}) VS You ({self.progress.rating(giver.region)})"
             lines["reward"] = f"Win: {self.reward_for(offer, 3)} mastery"
+        if offer.eased:
+            lines["reward"] += "  ·  easier offer, reduced reward"
+        lines["can_decline"] = self.can_decline(offer)
         return lines
 
     # Running missions -------------------------------------------------------------
@@ -305,8 +353,6 @@ class Missions:
     def accept(self, giver: Giver) -> Offer:
         """Start the giver's offer. Returns it; drag races are run by the caller."""
         offer = self.offer_for(giver)
-        if offer.levels is None:
-            offer.levels = dict(self.progress.levels)
         limit = self.speed_limit(offer, (giver.x, giver.y)) if offer.type == "speed" else 0.0
         self.active = ActiveMission(offer, giver, limit, self.label(offer))
         return offer
@@ -431,6 +477,13 @@ class Missions:
                 "travel": ("locked" if level < FAST_TRAVEL_LEVEL else "here" if region == here
                            else "busy" if self.active else "ready"),
             })
+        rows.append({
+            # Fishing: the bag and every fish caught; travel opens with fishing (level 4).
+            "region": "beach", "kind": "beach", "bag": self.fish.count, "bag_value": self.fish.value,
+            "caught": dict(self.fish.caught), "unlock": f"Lvl {FISHING_LEVEL}",
+            "travel": ("locked" if not self.progress.fishing_unlocked() else "here" if here == "beach"
+                       else "busy" if self.active else "ready"),
+        })
         return rows
 
     def center_position(self, region: str):
@@ -444,4 +497,11 @@ class Missions:
     def to_dict(self):
         # The ongoing mission is deliberately absent: its offer stays with its giver.
         return {"progress": self.progress.to_dict(), "counter": self.counter,
-                "offers": {gid: offer.to_dict() for gid, offer in self.offers.items()}}
+                "offers": {gid: offer.to_dict() for gid, offer in self.offers.items()},
+                "fish": self.fish.to_dict()}
+
+    def trade_fish(self):
+        """Hand the whole bag to a jungle fish trader: returns (fish, mastery, level-ups)."""
+        count, value = self.fish.take_bag()
+        levels = self.progress.add(TRADE_REGION, value) if value else []
+        return count, value, levels

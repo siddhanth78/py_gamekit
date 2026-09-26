@@ -1,20 +1,20 @@
 {
   "version": 3,
-  "mode": "walk",
+  "mode": "drive",
   "car": {
-    "x": 12769.586063533565,
-    "y": 15465.496042913202,
-    "heading": 6.458215485206852
+    "x": 12027.070793758185,
+    "y": 13730.2998891195,
+    "heading": 285.17477019230745
   },
   "missions": {
     "progress": {
       "city": {
         "level": 3,
-        "mastery": 4,
+        "mastery": 22,
         "completed": {
           "delivery": 4,
           "speed": 7,
-          "drag": 3
+          "drag": 9
         },
         "races": 4
       },
@@ -59,49 +59,81 @@
         "races": 0
       }
     },
-    "counter": 17,
+    "counter": 31,
     "offers": {
-      "city-drag": {
-        "type": "drag",
-        "scale": 1.15,
-        "target": null,
-        "track": {
-          "kind": "circuit",
-          "theme": "city",
-          "seed": 47328636,
-          "size": 4
-        },
-        "seed": 47328636,
-        "levels": {
-          "city": 2,
-          "jungle": 1,
-          "desert": 1,
-          "snow": 1,
-          "rural": 1
-        }
-      },
       "city-speed": {
         "type": "speed",
-        "scale": 0.518,
+        "scale": 0.7,
         "target": [
-          14533.692501507885,
-          17767.589728623345
+          15747.687054040622,
+          16835.218436435774
         ],
         "track": null,
-        "seed": 528096777,
+        "seed": 519442610,
         "levels": {
           "city": 3,
           "jungle": 1,
           "desert": 1,
           "snow": 1,
           "rural": 1
-        }
+        },
+        "rating": null,
+        "declines": 1
+      },
+      "city-drag": {
+        "type": "drag",
+        "scale": 1.0,
+        "target": null,
+        "track": {
+          "kind": "circuit",
+          "theme": "city",
+          "seed": 620861994,
+          "size": 5
+        },
+        "seed": 620861994,
+        "levels": {
+          "city": 3,
+          "jungle": 1,
+          "desert": 1,
+          "snow": 1,
+          "rural": 1
+        },
+        "rating": 134,
+        "declines": 0
+      },
+      "city-delivery": {
+        "type": "delivery",
+        "scale": 0.833,
+        "target": [
+          9995.343855302515,
+          7147.539039052919
+        ],
+        "track": null,
+        "seed": 664414652,
+        "levels": {
+          "city": 3,
+          "jungle": 1,
+          "desert": 1,
+          "snow": 1,
+          "rural": 1
+        },
+        "rating": null,
+        "declines": 0
+      }
+    },
+    "fish": {
+      "bag": {
+        "common": 0,
+        "uncommon": 0,
+        "rare": 0,
+        "epic": 0
+      },
+      "caught": {
+        "common": 0,
+        "uncommon": 0,
+        "rare": 0,
+        "epic": 0
       }
     }
-  },
-  "walker": {
-    "x": 12774.816120827212,
-    "y": 15335.391154896088,
-    "heading": 0.0
   }
 }

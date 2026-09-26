@@ -18,6 +18,7 @@ import pygame
 import main
 import player_save
 import world_save
+from progression import rating_speed
 from missions import Offer
 from walker import Walker
 
@@ -85,7 +86,7 @@ class GameFlowTests(unittest.TestCase):
     def test_center_offers_show_both_ratings(self):
         g = self.game
         g.missions.progress.add("city", 10 + 20)         # Level 3: rating 120.
-        g.missions.progress.races["city"] = 3            # Race 4 needs level 5: rating 140.
+        g.missions.progress.races["city"] = 3            # Race 4's rival is rated 140.
         cx, cy = g.missions.center_position("city")
         g._step_out(Walker(cx, cy + 110))
         self.press(pygame.K_e)
@@ -143,19 +144,43 @@ class GameFlowTests(unittest.TestCase):
         self.assertNotIn("abort", g.menu.items)
         self.assertNotIn("quit_race", g.menu.items)
 
-    def test_a_drag_rival_keeps_its_offer_time_speed_after_leveling(self):
+    def test_a_drag_rival_keeps_its_rating_after_leveling(self):
         g = self.game
         dg = g.missions.by_id["city-drag"]
-        g.missions.progress.add("city", 10)             # Level 2 when offered.
-        g.missions.offers[dg.id] = Offer(dg.id, "drag", 1.15, None, {"kind": "straight", "theme": "city"},
-                                         5, dict(g.missions.progress.levels))
-        g.missions.progress.add("city", 20)             # Level 3 by the time it's accepted.
+        g.missions.progress.add("city", 10)             # Level 2 (110) when offered.
+        g.missions.offers[dg.id] = Offer(dg.id, "drag", 1.0, None, {"kind": "straight", "theme": "city"},
+                                         5, dict(g.missions.progress.levels), 125)
+        g.missions.progress.add("city", 20)             # Level 3 (120) by the time it's accepted.
         g._step_out(Walker(dg.x + 20, dg.y))
         self.press(pygame.K_e)
-        self.assertEqual(g.panel.lines[1].text, "Rival (127) VS You (120)")
+        self.assertEqual(g.panel.lines[1].text, "Rival (125) VS You (120)")
+        self.assertEqual(g.panel.chip_name, "Hard")     # A straight: no corners to cut.
         self.press(pygame.K_RETURN)
-        self.assertAlmostEqual(g.race.rival.scale, 1.106)          # Rated 126.5, from level 2.
+        # A car rated 125, less its random off-day for this attempt.
+        self.assertAlmostEqual(g.race.rival.scale, rating_speed(125 - g.race.off_day))
         self.assertAlmostEqual(g.race.speed_scale, 1.08)           # The player is level 3.
+
+    def test_declines_halve_the_reward_down_to_one_and_escape_keeps_the_offer(self):
+        g = self.game
+        dg = g.missions.by_id["city-drag"]
+        g.missions.offers[dg.id] = Offer(dg.id, "drag", 1.0, None, {"kind": "straight", "theme": "city"},
+                                         5, dict(g.missions.progress.levels), 112)
+        g._step_out(Walker(dg.x + 20, dg.y))
+        self.press(pygame.K_e, pygame.K_ESCAPE)          # Walking away keeps the offer.
+        self.assertEqual(g.missions.offers[dg.id].rating, 112)
+        g.missions.progress.add("city", 10 + 20)          # Level 3: a drag pays 5.
+        self.press(pygame.K_e, pygame.K_RIGHT, pygame.K_RETURN)   # DECLINE: 5 -> 2.
+        self.assertEqual(g.missions.offers[dg.id].declines, 1)
+        self.assertTrue(g.panel.open)                     # The easier offer is shown at once.
+        self.assertEqual(g.panel.chip_name, "Easy")
+        self.assertIn("Win: 2 mastery", g.panel.lines[2].text)
+        self.assertEqual(g.panel.buttons, ("ACCEPT", "DECLINE"))
+        self.press(pygame.K_RIGHT, pygame.K_RETURN)       # DECLINE again: 2 -> 1.
+        self.assertEqual(g.missions.offers[dg.id].declines, 2)
+        self.assertIn("Win: 1 mastery", g.panel.lines[2].text)
+        self.assertEqual(g.panel.buttons, ("ACCEPT",))    # At 1 mastery: no more declines.
+        self.press(pygame.K_RIGHT, pygame.K_RETURN)       # Only ACCEPT is left.
+        self.assertIsNotNone(g.race)
 
     def test_pausing_during_a_win_cannot_turn_it_into_a_loss(self):
         g = self.game

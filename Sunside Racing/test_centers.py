@@ -14,19 +14,18 @@ import math
 
 from car import Car
 from collision_manager import CollisionManager
-from drag_race import DragRace, best_line_length, flawless_time
+from drag_race import CLEAN_LAP, CUT_REACH, DragRace, best_line_length, flawless_time
 from fast_travel import island_destination, on_island, on_mainland_beach
-from progression import CENTER_RACES, ISLAND_LEVEL, REGIONS, Progress
-from racers import LAPS, REQUIRED_LEVELS, RIVALS, STORIES, cut_chance, rival, track_size
+from progression import CENTER_RACES, ISLAND_LEVEL, RATING_EDGE, REGIONS, Progress, rating, rating_speed
+from racers import LAPS, RIVAL_RATINGS, RIVALS, STORIES, rival, track_size
 from track_gen import CELL, generate, grow_blob, outline
 from world import SECTOR_SIZE, TILE_SIZE, World
 
 
 def center_race(region, race):
     track = {"kind": "circuit", "theme": region, "laps": LAPS, "seed": f"2026-{region}-{race}",
-             "size": track_size(race), "target_level": REQUIRED_LEVELS[race - 1],
-             "cut_chance": cut_chance(race)}
-    return DragRace(track, None, 1.0, race)
+             "size": track_size(race)}
+    return DragRace(track, None, 1.0, race, rival_rating=RIVAL_RATINGS[race - 1], rival_off_day=0.0)
 
 
 def rival_time(race):
@@ -72,16 +71,19 @@ class RivalTests(unittest.TestCase):
                 self.assertLessEqual(len(f'{name}: "{line}"'), 64)  # Fits the offer panel.
                 self.assertTrue(sprite.startswith("racer_"))
 
-    def test_every_race_is_won_at_its_level_and_lost_one_below(self):
+    def test_every_race_is_won_by_a_clean_lap_ten_below_its_rating_and_lost_twenty_below(self):
+        self.assertEqual(RIVAL_RATINGS, (100, 110, 120, 140, 150, 170, 220, 260, 300, 350))
+        self.assertEqual(rating(25) + RATING_EDGE, RIVAL_RATINGS[-1])   # The champion needs level 25.
         for region in REGIONS:
             for number in range(1, 11):
                 race = center_race(region, number)
                 seconds = rival_time(race)
-                level = REQUIRED_LEVELS[number - 1]
-                self.assertLess(flawless_time(race.level, level), seconds, (region, number))
-                if level > 1:
-                    self.assertGreater(flawless_time(race.level, level - 1), seconds, (region, number))
-        self.assertEqual(REQUIRED_LEVELS[-1], 20)
+                rated = RIVAL_RATINGS[number - 1]
+                # A clean human lap (CLEAN_LAP off the flat-out model) 10 below always wins,
+                # 20 below never does (running wide at half the corners costs rivals < 10 points).
+                clean = lambda rated: flawless_time(race.level, multiplier=rating_speed(rated)) * CLEAN_LAP
+                self.assertLess(clean(rated - 10), seconds, (region, number))
+                self.assertGreater(clean(rated - 20), seconds, (region, number))
         self.assertEqual(rival("snow", 10)[0], "The Glacier")
 
 
@@ -90,22 +92,25 @@ class CornerCuttingTests(unittest.TestCase):
         race = center_race("city", 4)
         self.assertLess(best_line_length(race.level), race.level.race_length * 0.8)
 
-    def test_harder_rivals_cut_more_corners_and_stay_on_track(self):
-        self.assertEqual((cut_chance(1), cut_chance(10)), (0.1, 0.9))
-        rookies = sum(center_race(r, 1).rival.cuts for r in REGIONS)
-        champions = sum(center_race(r, 10).rival.cuts for r in REGIONS)
-        self.assertGreater(champions, rookies * 3)
+    def test_rated_rivals_cut_about_half_the_corners_at_their_rating_speed_and_stay_on_track(self):
+        for region in REGIONS:
+            race = center_race(region, 5)
+            corners = len(race.level.path) * (race.level.laps + 1)
+            self.assertLess(abs(race.rival.cuts / corners - 0.5), 0.15)   # The rest run wide.
+            self.assertAlmostEqual(race.rival.scale, rating_speed(RIVAL_RATINGS[4]))
+            self.assertLessEqual(race.rival.corner, race.rival.top)
         race = center_race("jungle", 10)
         while race.rival.progress < race.level.race_length:
             race.rival.update(1 / 60, 10.0)
             self.assertIn((int(race.rival.x // TILE_SIZE), int(race.rival.y // TILE_SIZE)),
                           race.level.track)
 
-    def test_cuts_stay_at_the_corners_and_straights_stay_central(self):
-        race = center_race("desert", 10)            # 90% cut chance.
-        self.assertGreater(race.rival.cuts, 20)
+    def test_long_straights_stay_central(self):
+        race = center_race("desert", 10)
         corners = race.level.path
         segments = list(zip(corners, corners[1:] + corners[:1]))
+        long_ones = [(a, b) for a, b in segments if math.dist(a, b) > 2 * CUT_REACH]
+        self.assertTrue(long_ones)
 
         def off_center(point):
             best = math.inf
@@ -115,12 +120,19 @@ class CornerCuttingTests(unittest.TestCase):
                 best = min(best, math.dist(point, (ax + (bx - ax) * t, ay + (by - ay) * t)))
             return best
 
+        checked = 0
         while race.rival.progress < race.level.race_length:
             race.rival.update(1 / 60, 10.0)
             here = (race.rival.x, race.rival.y)
-            # Diagonals start 168 px (about 2.6 tiles) before a corner; beyond that, centered.
-            if race.rival.distance > 2 * TILE_SIZE and min(math.dist(here, c) for c in corners) > 3 * TILE_SIZE:
-                self.assertLess(off_center(here), 1.0)
+            # On a long straight, cuts drift in only CUT_REACH from each end: centered between.
+            for (ax, ay), (bx, by) in long_ones:
+                length = math.dist((ax, ay), (bx, by))
+                t = ((here[0] - ax) * (bx - ax) + (here[1] - ay) * (by - ay)) / length ** 2
+                side = math.dist(here, (ax + (bx - ax) * t, ay + (by - ay) * t))
+                if CUT_REACH + 8 < t * length < length - CUT_REACH - 8 and side < 96:
+                    self.assertLess(side, 1.0)
+                    checked += 1
+        self.assertGreater(checked, 0)
 
     def test_cuts_are_diagonals_not_hairpins(self):
         for region in REGIONS:
@@ -128,7 +140,8 @@ class CornerCuttingTests(unittest.TestCase):
             for a, b, d in zip(points, points[1:], points[2:]):
                 first = math.degrees(math.atan2(b[0] - a[0], -(b[1] - a[1])))
                 second = math.degrees(math.atan2(d[0] - b[0], -(d[1] - b[1])))
-                self.assertLessEqual(abs((second - first + 180) % 360 - 180), 90.5)
+                # Holding the inside between corners can add a couple of degrees; never a hairpin.
+                self.assertLessEqual(abs((second - first + 180) % 360 - 180), 95)
 
     def test_drag_rivals_never_cut_and_are_balanced_for_the_ideal_line(self):
         race = DragRace({"kind": "circuit", "theme": "city", "seed": 99, "size": 6}, 1.0, 1.0, 3)

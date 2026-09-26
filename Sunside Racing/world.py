@@ -50,6 +50,54 @@ PARKED_CARS = (
     "traffic_yellow", "traffic_taxi", "traffic_van", "traffic_pickup", "traffic_suv",
     "traffic_wagon", "traffic_compact",
 )
+# Fishing piers: (name, sector row or column along the shore, outward direction).
+# West and east piers sit on a sector row, the north pier on a column.
+DOCK_SITES = (("west", ISLAND_ROW, (-1, 0)), ("north", 26, (0, -1)), ("east", 22, (1, 0)))
+PIER_TILES = 4      # Tiles a pier reaches out over the sea.
+PIER_HALF = 22      # Half the plank width, px (the art's planks span 44 of 64 px).
+END_FACING = {(0, -1): 0.0, (-1, 0): 90.0, (0, 1): 180.0, (1, 0): -90.0}  # GL rotation.
+
+
+@dataclass(frozen=True)
+class Dock:
+    """A walkable pier: tiles from the shore outward; only people can use it."""
+    name: str
+    direction: tuple[int, int]
+    tiles: tuple[tuple[int, int], ...]
+
+    @property
+    def end(self) -> tuple[int, int]:
+        return self.tiles[-1]
+
+    @property
+    def heading(self) -> float:
+        """Degrees clockwise from north, facing out to sea."""
+        return {(0, -1): 0.0, (1, 0): 90.0, (0, 1): 180.0, (-1, 0): 270.0}[self.direction]
+
+    def contains(self, x: float, y: float) -> bool:
+        """On the planks: between the shore and the end, within PIER_HALF of the axis."""
+        (x0, y0), (x1, y1) = self.tiles[0], self.tiles[-1]
+        dx, dy = self.direction
+        left = min(x0, x1) * TILE_SIZE + (6 if dx < 0 else 0)
+        right = (max(x0, x1) + 1) * TILE_SIZE - (6 if dx > 0 else 0)
+        top = min(y0, y1) * TILE_SIZE + (6 if dy < 0 else 0)
+        bottom = (max(y0, y1) + 1) * TILE_SIZE - (6 if dy > 0 else 0)
+        if dx:
+            mid = (y0 + 0.5) * TILE_SIZE
+            return left <= x <= right and abs(y - mid) <= PIER_HALF
+        mid = (x0 + 0.5) * TILE_SIZE
+        return top <= y <= bottom and abs(x - mid) <= PIER_HALF
+
+    def at_end(self, x: float, y: float) -> bool:
+        return self.contains(x, y) and (int(x // TILE_SIZE), int(y // TILE_SIZE)) == self.end
+
+    def shore(self) -> tuple[float, float]:
+        """A point on the beach just inland of the pier."""
+        tx, ty = self.tiles[0]
+        dx, dy = self.direction
+        return (tx + 0.5 - 2 * dx) * TILE_SIZE, (ty + 0.5 - 2 * dy) * TILE_SIZE
+
+
 # Encampments: offsets from the camp center (the sector's middle).
 CAMPS_PER_REGION = 5
 CAMP_TENTS = ((-88, -56), (84, -60), (6, 92))
@@ -123,6 +171,31 @@ class World:
                                   if self._landmass(sx, ISLAND_ROW) == "mainland"), ISLAND_ROW)
         self.island_dock = (min(sx for sx in range(SECTORS)
                                 if self._landmass(sx, ISLAND_ROW) == "island"), ISLAND_ROW)
+        self.docks = self._place_docks()
+        self.pier_tiles = {tile: (dock, i) for dock in self.docks for i, tile in enumerate(dock.tiles)}
+
+    def _place_docks(self) -> tuple[Dock, ...]:
+        """Fishing piers on the mainland's west, north, and east shores."""
+        docks = []
+        for name, line, (dx, dy) in DOCK_SITES:
+            mid = TILES_PER_SECTOR // 2
+            if dx:  # Along a sector row: the outermost mainland sector that way.
+                land = [sx for sx in range(SECTORS) if self._landmass(sx, line) == "mainland"]
+                sx = min(land) if dx < 0 else max(land)
+                edge = sx * TILES_PER_SECTOR + (-1 if dx < 0 else TILES_PER_SECTOR)
+                tiles = tuple((edge + dx * i, line * TILES_PER_SECTOR + mid) for i in range(PIER_TILES))
+            else:
+                land = [sy for sy in range(SECTORS) if self._landmass(line, sy) == "mainland"]
+                sy = min(land) if dy < 0 else max(land)
+                edge = sy * TILES_PER_SECTOR + (-1 if dy < 0 else TILES_PER_SECTOR)
+                tiles = tuple((line * TILES_PER_SECTOR + mid, edge + dy * i) for i in range(PIER_TILES))
+            docks.append(Dock(name, (dx, dy), tiles))
+        return tuple(docks)
+
+    def dock_at(self, x: float, y: float):
+        """The pier whose planks are under (x, y), if any."""
+        entry = self.pier_tiles.get((int(x // TILE_SIZE), int(y // TILE_SIZE)))
+        return entry[0] if entry and entry[0].contains(x, y) else None
 
     def _choose_camps(self) -> dict[tuple[int, int], str]:
         """Spread a few encampments through the desert and jungle, clear of centers."""
@@ -184,6 +257,12 @@ class World:
 
     def is_drivable(self, x: float, y: float) -> bool:
         return self.region_at(x, y) != "sea"
+
+    def can_place_walker(self, rect: list[float]) -> bool:
+        """People can also stand on the fishing piers' planks, over the sea."""
+        corners = get_rect_corners(rect[0], rect[1], rect[7], rect[8], rect[9])
+        return all(self.is_drivable(x, y) or self.dock_at(x, y) is not None
+                   for x, y in [(rect[0], rect[1]), *corners])
 
     def can_place_car(self, rect: list[float]) -> bool:
         corners = get_rect_corners(rect[0], rect[1], rect[7], rect[8], rect[9])
@@ -288,6 +367,16 @@ class World:
                  solid: tuple[float, float] = (0.0, 0.0)):
             scenery.append(Sprite("prop-atlas", name, x, y, size, size, rotation, *solid))
 
+        for dock in self.docks:
+            # Keep palms and scrub off the sand leading onto a pier.
+            tx, ty = dock.tiles[0]
+            for i in range(1, 4):
+                for side in (-1, 0, 1):
+                    dx, dy = dock.direction
+                    lx = tx - dx * i + (side if dy else 0) - tx0
+                    ly = ty - dy * i + (side if dx else 0) - ty0
+                    if 0 <= lx < TILES_PER_SECTOR and 0 <= ly < TILES_PER_SECTOR:
+                        occupied.add((lx, ly))
         center = CENTERS.get((sx, sy))
         center_xy = None
         if center:
@@ -318,8 +407,10 @@ class World:
             coastal = any(self._landmass(sx + dx, sy + dy) != "sea"
                           for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
             if coastal and rng.random() < 0.35:
-                prop("buoy", ox + rng.randrange(96, SECTOR_SIZE - 96),
-                     oy + rng.randrange(96, SECTOR_SIZE - 96), 44)
+                bx, by = ox + rng.randrange(96, SECTOR_SIZE - 96), oy + rng.randrange(96, SECTOR_SIZE - 96)
+                if not any(abs(bx - (t[0] + 0.5) * TILE_SIZE) < 96 and abs(by - (t[1] + 0.5) * TILE_SIZE) < 96
+                           for t in self.pier_tiles):
+                    prop("buoy", bx, by, 44)
             if sy == ISLAND_ROW and self.mainland_dock[0] < sx < self.island_dock[0]:
                 for dy in (-96, 96):
                     prop("buoy", ox + SECTOR_SIZE / 2, oy + SECTOR_SIZE / 2 + dy, 44)
@@ -343,7 +434,16 @@ class World:
                                   if mass == "sea"), None)
                     if shore:
                         tile = f"shore_{shore}"
-                result.append(Sprite("terrain-atlas", tile, x, y, TILE_SIZE, TILE_SIZE))
+                rotation = 0.0
+                pier = self.pier_tiles.get((tx, ty))
+                if pier:
+                    dock, index = pier
+                    # Planks run along the pier; the end tile's posts face the sea.
+                    if index == len(dock.tiles) - 1:
+                        tile, rotation = "pier_end", END_FACING[dock.direction]
+                    else:
+                        tile, rotation = "pier_planks", 0.0 if dock.direction[0] == 0 else 90.0
+                result.append(Sprite("terrain-atlas", tile, x, y, TILE_SIZE, TILE_SIZE, rotation))
                 road_style = self._road_style(tx, ty)
                 if not road_style:
                     continue

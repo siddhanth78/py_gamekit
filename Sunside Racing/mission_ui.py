@@ -60,8 +60,9 @@ class MissionPanel:
             self.quads[id(label)] = (instances, *build_tex_objs(ctx, self.text_program, instances))
 
     def show_offer(self, preview: dict):
+        buttons = ("ACCEPT", "DECLINE") if preview.get("can_decline", True) else ("ACCEPT",)
         self._show("offer", preview["title"], preview["difficulty"],
-                   (preview["detail"], preview["rules"], preview["reward"]), ("ACCEPT", "DECLINE"))
+                   (preview["detail"], preview["rules"], preview["reward"]), buttons)
 
     def show_result(self, result: dict):
         chip = "Success" if result["success"] else "Failed"
@@ -111,7 +112,8 @@ class MissionPanel:
     def handle(self, action, value):
         """Returns 'accept', 'decline', or 'close' when the panel is dismissed."""
         if action == "pause":
-            return self._close("decline" if self.mode == "offer" else "close")
+            # Escape walks away; only the DECLINE button turns an offer down.
+            return self._close("close")
         if action in ("menu_left", "menu_right"):
             # Buttons sit side by side: Left picks the left one, Right the right one.
             last = len(self.buttons) - 1

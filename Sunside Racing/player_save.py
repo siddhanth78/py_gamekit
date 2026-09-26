@@ -121,7 +121,8 @@ class PlayerSave:
             saved_fixed = collisions.fixed
             collisions.fixed = [car.obstacle()]  # The parked car is solid on foot.
             try:
-                if collisions.can_move(walker.collision_record()):
+                can_walk = getattr(collisions, "can_walk", collisions.can_move)  # Piers too.
+                if can_walk(walker.collision_record()):
                     return walker
             finally:
                 collisions.fixed = saved_fixed

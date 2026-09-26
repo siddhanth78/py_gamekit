@@ -12,13 +12,22 @@ TOOLKIT_ROOT = PROJECT_ROOT.parent
 if str(TOOLKIT_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOLKIT_ROOT))
 
-from car import TOP_SPEED, Car
+from car import ACCELERATION, TOP_SPEED, Car
 from collision_manager import CollisionManager
-from drag_race import DragRace, TrackLevel
+from drag_race import CLEAN_LAP, RIVAL_BUMP_SPEED, DragRace, TrackLevel, flawless_time, off_day
 from missions import DELIVERY_PENALTY, Missions, Offer, difficulty
 from player_save import PlayerSave
-from progression import Progress, reward
+from progression import Progress, rating_difficulty, rating_speed, reward
 from world import TILE_SIZE, World
+
+
+def center_rival_time(race):
+    """Seconds the race's rival needs from its start, ignoring its reaction delay."""
+    rival, seconds = race.rival, 0.0
+    while rival.progress < race.level.race_length:
+        rival.update(1 / 60, rival.reaction)
+        seconds += 1 / 60
+    return seconds
 
 
 class ProgressionTests(unittest.TestCase):
@@ -76,40 +85,41 @@ class GiverAndOfferTests(unittest.TestCase):
         self.assertEqual({k: v.to_dict() for k, v in again.offers.items()},
                          {k: v.to_dict() for k, v in missions.offers.items()})
 
-    def test_drag_rivals_are_capped_at_1_15_including_saved_offers(self):
-        missions = Missions(self.world, self.world.seed)
+    def test_drag_rivals_are_rated_minus_10_to_plus_15_around_the_player(self):
+        missions = Missions(self.world, self.world.seed,
+                            {"progress": {"city": {"level": 2, "mastery": 0},
+                                          "desert": {"level": 5, "mastery": 0}}})
         for giver in (g for g in missions.givers if g.type == "drag"):
-            for _ in range(40):
+            base = missions.progress.rating(giver.region)
+            gaps = set()
+            for _ in range(60):
                 missions.offers.pop(giver.id, None)
-                self.assertLessEqual(missions.offer_for(giver).scale, 1.15)
-        saved = {"offers": {"city-drag": {"type": "drag", "scale": 1.227, "target": None,
-                                          "track": {"kind": "straight", "theme": "city"}, "seed": 1},
-                            "city-speed": {"type": "speed", "scale": 1.24, "target": [100.0, 100.0],
-                                           "track": None, "seed": 2}}}
-        loaded = Missions(self.world, self.world.seed, saved)
-        self.assertEqual(loaded.offers["city-drag"].scale, 1.15)
-        self.assertEqual(loaded.offers["city-speed"].scale, 1.24)  # Other missions unchanged.
+                gaps.add(missions.offer_for(giver).rating - base)
+            self.assertLessEqual(max(gaps), 15)
+            self.assertGreaterEqual(min(gaps), 0 if giver.harder else -10, giver.id)
+            self.assertGreater(len(gaps), 8)
 
-    def test_drag_rivals_keep_their_offer_time_rating_after_leveling(self):
+    def test_drag_difficulty_is_the_rating_gap_and_the_rival_keeps_its_rating(self):
         missions = Missions(self.world, self.world.seed,
                             {"progress": {"city": {"level": 2, "mastery": 0}}})
         giver = missions.by_id["city-drag"]
-        missions.offers.pop(giver.id, None)
-        offer = missions.offer_for(giver)
-        offer.scale = 1.15
-        self.assertEqual(offer.levels["city"], 2)
-        self.assertAlmostEqual(missions.rival_rating(offer), 126.5)        # 1.15 x 110.
-        self.assertAlmostEqual(missions.rival_multiplier(offer), 1.106)    # +4% per 10 rating.
-        self.assertEqual(missions.preview(offer)["difficulty"], "Hard")
-        self.assertEqual(missions.preview(offer)["rules"], "Rival (127) VS You (110)")
-        missions.progress.add("city", 20)  # Level 3: 126.5 / 120 = 1.054.
-        self.assertAlmostEqual(missions.rival_rating(offer), 126.5)        # Rival unchanged.
-        self.assertEqual(missions.preview(offer)["difficulty"], "Hard")
-        self.assertEqual(missions.preview(offer)["rules"], "Rival (127) VS You (120)")
-        missions.progress.add("city", 30)  # Level 4: 126.5 / 130 = 0.973.
-        self.assertEqual(missions.preview(offer)["difficulty"], "Medium")
+        offer = Offer(giver.id, "drag", 1.0, None, {"kind": "circuit", "theme": "city", "seed": 1, "size": 4},
+                      1, dict(missions.progress.levels), 125)
+        missions.offers[giver.id] = offer
+        preview = missions.preview(offer)
+        self.assertEqual((preview["difficulty"], preview["rules"]), ("Hard", "Rival (125) VS You (110)"))
+        missions.progress.add("city", 20)               # Level 3 (120): +5 is Medium.
+        preview = missions.preview(offer)
+        self.assertEqual((preview["difficulty"], preview["rules"]), ("Medium", "Rival (125) VS You (120)"))
+        missions.progress.add("city", 30)               # Level 4 (130): below the player is Easy.
+        self.assertEqual(missions.label(offer), "Easy")
         restored = Missions(self.world, self.world.seed, json.loads(json.dumps(missions.to_dict())))
-        self.assertAlmostEqual(restored.rival_rating(restored.offers[giver.id]), 126.5)
+        self.assertEqual(restored.offers[giver.id].rating, 125)
+        missions.progress.levels["city"] = 3            # 120 again, on a straight: no corners to cut.
+        offer.track = {"kind": "straight", "theme": "city"}
+        self.assertEqual(missions.label(offer), "Hard")
+        self.assertEqual([rating_difficulty(gap) for gap in (-10, 0, 1, 10, 11, 15)],
+                         ["Easy", "Easy", "Medium", "Medium", "Hard", "Hard"])
 
     def test_time_trial_clocks_stay_at_the_offer_time_car_after_leveling(self):
         missions = Missions(self.world, self.world.seed)
@@ -132,9 +142,50 @@ class GiverAndOfferTests(unittest.TestCase):
                                           "track": {"kind": "straight", "theme": "city"}, "seed": 1}}}
         missions = Missions(self.world, self.world.seed, saved)
         self.assertEqual(missions.offers["city-drag"].levels["city"], 2)
-        self.assertAlmostEqual(missions.rival_rating(missions.offers["city-drag"]), 126.5)
+        # Saved before ratings: 1.15 x 110 = 126.5, kept within +15 of 110.
+        self.assertEqual(missions.offers["city-drag"].rating, 125)
         with self.assertRaises(ValueError):
             Offer.from_dict("city-drag", {**saved["offers"]["city-drag"], "levels": {"city": 0}})
+
+    def test_each_decline_offers_an_easy_one_for_half_the_mastery_down_to_one(self):
+        missions = Missions(self.world, self.world.seed,
+                            {"progress": {"city": {"level": 3, "mastery": 0}}})
+        for giver in (g for g in missions.givers if g.region == "city"):
+            offer = missions.offer_for(giver)
+            self.assertFalse(offer.eased)
+            while missions.can_decline(offer):
+                offer = missions.decline(giver)
+                self.assertTrue(offer.eased)
+                self.assertEqual(missions.label(offer), "Easy", giver.id)
+                if offer.type == "drag":
+                    self.assertLessEqual(offer.rating, missions.progress.rating("city"))
+            self.assertIs(missions.decline(giver), offer)          # At 1 mastery: no more.
+            self.assertFalse(missions.preview(offer)["can_decline"])
+            self.assertIn("reduced reward", missions.preview(offer)["reward"])
+        giver = missions.by_id["city-drag"]                          # Level 3: 5 -> 2 -> 1.
+        missions.offers.pop(giver.id)
+        chain = [missions.reward_for(missions.offer_for(giver), 3)]
+        while missions.can_decline(missions.offer_for(giver)):
+            chain.append(missions.reward_for(missions.decline(giver), 3))
+        self.assertEqual(chain, [5, 2, 1])
+        veteran = missions.by_id["city-drag-hard"]
+        missions.progress.levels["city"] = 5                          # Veterans: (3+4) x 2 = 14.
+        missions.offers[veteran.id] = Offer(veteran.id, "drag", 1.0, None, {"kind": "straight", "theme": "city"},
+                                            1, dict(missions.progress.levels), 140)
+        chain = [missions.reward_for(missions.offer_for(veteran), 3)]
+        while missions.can_decline(missions.offer_for(veteran)):
+            chain.append(missions.reward_for(missions.decline(veteran), 3))
+        self.assertEqual(chain, [14, 7, 3, 1])
+        missions.progress.levels["city"] = 3
+        restored = Missions(self.world, self.world.seed, json.loads(json.dumps(missions.to_dict())))
+        self.assertEqual(restored.offers[giver.id].declines, 2)
+        missions.accept(giver)
+        result = missions.finish_drag(True, "Won")
+        self.assertEqual(result["mastery"], 1)
+        self.assertFalse(missions.offer_for(giver).eased)             # Full offers return.
+        saved = missions.offer_for(giver).to_dict()
+        del saved["declines"]
+        self.assertEqual(Offer.from_dict(giver.id, {**saved, "eased": True}).declines, 1)  # Older saves.
 
     def test_bad_saved_offers_are_dropped(self):
         data = {"offers": {"city-drag": {"type": "drag", "scale": 9}, "nobody": {"type": "speed"}}}
@@ -336,6 +387,66 @@ class DragRaceTests(unittest.TestCase):
     def test_a_fast_rival_wins_the_straight(self):
         race = self.run_race({"kind": "straight", "theme": "city"}, 1.25, lambda r: (1, 0))
         self.assertEqual(race.result, "lose")
+
+    def test_straight_rivals_drive_at_their_rating_start_delay_included(self):
+        straight = {"kind": "straight", "theme": "city"}
+        # The user's race: a 131 rival must beat a flat-out 120, and only a 131 wins.
+        for player, result in ((120, "lose"), (129, "lose"), (131, "win")):
+            race = DragRace(straight, None, rating_speed(player), 1, rival_rating=131, rival_off_day=0.0)
+            for _ in range(60 * 60):
+                race.update(1 / 60, 1, 0, False)
+                if race.result:
+                    break
+            self.assertEqual(race.result, result, player)
+
+    def test_circuit_rivals_lose_to_a_clean_human_lap_ten_below(self):
+        circuit = DragRace({"kind": "circuit", "theme": "city", "seed": 370177870, "size": 5}, None, 1.0, 3,
+                           rival_rating=125, rival_off_day=0.0)
+        clean = lambda rated: flawless_time(circuit.level, multiplier=rating_speed(rated)) * CLEAN_LAP
+        seconds = center_rival_time(circuit) + circuit.rival.reaction
+        # Never harder than its rating (a clean 115 wins); its wide corners (half of them) can
+        # make it easier, but a clean 100 still loses. The user's lap here was ~18.3 s at 120.
+        self.assertGreater(seconds, clean(115) * 1.005 - 0.05)
+        self.assertLess(seconds, clean(100))
+
+    def test_rated_rivals_never_outrun_their_rating_and_have_off_days(self):
+        # The user's report: a 114 circuit rival caught a 120 on the straights.
+        circuit = {"kind": "circuit", "theme": "city", "seed": 370177870, "size": 5}
+        race = DragRace(circuit, None, rating_speed(120), 3, rival_rating=114, rival_off_day=0.0)
+        top, accel = race.rival.top, race.rival.accel
+        self.assertAlmostEqual(top, 170 * rating_speed(114))
+        self.assertLess(top, 170 * rating_speed(120))
+        self.assertEqual(accel, ACCELERATION)          # The player's acceleration: no boost.
+        days = {round(DragRace({"kind": "straight", "theme": "city"}, None, 1.0, 3, rival_rating=120).off_day, 3)
+                for _ in range(30)}
+        self.assertGreater(len(days), 20)               # Rerolled every attempt.
+        self.assertTrue(all(0 <= day <= 10 for day in days))
+        self.assertEqual([round(off_day(u), 2) for u in (0, 0.5, 1)], [0, 1.25, 10])
+
+    def test_bumping_the_rival_under_throttle_keeps_some_momentum_walls_do_not(self):
+        straight = {"kind": "straight", "theme": "city"}
+        race = DragRace(straight, None, 1.0, 3, rival_rating=100, rival_off_day=0.0)
+        race.clock, race.rival.reaction = 0.0, 1e9         # Racing; the rival sits still.
+        car = race.car
+        race.rival.x, race.rival.y, race.rival.heading = car.x + 45, car.y, car.heading  # Nose to tail.
+        car.speed = 150.0
+        race.update(1 / 60, 1, 0, False)
+        self.assertEqual(car.speed, RIVAL_BUMP_SPEED)
+        car.speed = 150.0
+        race.update(1 / 60, 0, 0, False)                   # Off the throttle: a dead stop.
+        self.assertEqual(car.speed, 0.0)
+        race = DragRace(straight, None, 1.0, 3, rival_rating=100, rival_off_day=0.0)
+        race.clock, race.rival.reaction = 0.0, 1e9
+        car = race.car
+        car.heading, car.speed = 0.0, 150.0                # Straight into the side barrier.
+        stopped = False
+        for _ in range(120):
+            before = car.speed
+            race.update(1 / 60, 1, 0, False)
+            if before > 0 and car.speed == 0:
+                stopped = True
+                break
+        self.assertTrue(stopped)
 
     def test_rival_laps_the_circuit_on_the_track(self):
         race = DragRace({"kind": "circuit", "theme": "snow", "shape": 2}, 1.0, 1.0, 3)

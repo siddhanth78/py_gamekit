@@ -10,9 +10,20 @@ HARDER_LEVEL = 5         # Harder mission givers appear from this level.
 HARDER_MULTIPLIER = 2
 FAST_TRAVEL_LEVEL = 3    # Reaching this level lets the player fast travel to the region.
 CENTER_RACES = 10        # Races at each region's racing center.
+FISHING_LEVEL = 4        # Any region at this level opens beach fishing and fast travel there.
 ISLAND_LEVEL = 25        # With every center complete, one region at this level opens the island.
 RATING_BASE = 100        # A level-1 (stock) car's rating.
 RATING_PER_LEVEL = 10    # Each level adds this much rating (and SPEED_PER_LEVEL top speed).
+# On circuits a clean, corner-cutting race is worth this much rating: a circuit rival rated
+# R just loses to a clean driver rated R - RATING_EDGE. Straights have no corners to cut, so
+# a straight rival rated R is simply a car rated R.
+RATING_EDGE = 10
+
+
+def rating_difficulty(gap: float, edge: int = RATING_EDGE) -> str:
+    """Label for a rival rated gap above the player: at or below them is Easy, up to edge
+    above is Medium (a clean, corner-cutting race wins), beyond is Hard."""
+    return "Easy" if gap <= 0 else "Medium" if gap <= edge else "Hard"
 
 
 def rating(level: int) -> int:
@@ -23,10 +34,6 @@ def rating(level: int) -> int:
 def rating_speed(value: float) -> float:
     """Top-speed multiplier of a car rated value: every 10 points is +4% over stock."""
     return 1.0 + SPEED_PER_LEVEL * (value - RATING_BASE) / RATING_PER_LEVEL
-
-
-def show_rating(value: float) -> str:
-    return str(int(round(value, 6) + 0.5))  # Halves round up (1.15 x 110 is 126.4999...).
 
 
 def mastery_to_next(level: int) -> int:
@@ -98,6 +105,9 @@ class Progress:
 
     def rating(self, region: str) -> int:
         return rating(self.levels.get(region, 1))
+
+    def fishing_unlocked(self) -> bool:
+        return max(self.levels.values()) >= FISHING_LEVEL
 
     def harder_unlocked(self, region: str) -> bool:
         return self.levels[region] >= HARDER_LEVEL

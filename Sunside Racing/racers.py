@@ -1,8 +1,9 @@
 """Racing-center rivals: each region's story and its ten racers, weakest to champion.
 
-Each rival gets one line of dialogue before their race. Race k's rival is calibrated to
-its generated track so a flawless player at REQUIRED_LEVELS[k] in that region just wins:
-the champion (race 10) needs about level 20.
+Each rival gets one line of dialogue before their race. Race k's rival is rated
+RIVAL_RATINGS[k] and calibrated to its generated track so a flawless driver rated 10 lower
+just wins. The ladder climbs gently through race 6, then steeply for the last four: the
+champion (350) needs rating 340, level 25.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 
 RACES_PER_CENTER = 10
 LAPS = 3
-REQUIRED_LEVELS = (1, 2, 3, 5, 7, 9, 11, 14, 17, 20)
+RIVAL_RATINGS = (100, 110, 120, 140, 150, 170, 220, 260, 300, 350)
 
 STORIES = {
     "city": "Sunside's night crews race the old harbor loop for the Neon Crown.",
@@ -84,11 +85,6 @@ RIVALS = {
         ("Big Mae", "The Golden Plough stays on my porch, kid.", "racer_black"),
     ),
 }
-
-
-def cut_chance(race: int) -> float:
-    """Chance the race 1-10 rival cuts each corner: 10% for rookies up to 90% for champions."""
-    return round(0.1 + 0.8 * (race - 1) / 9, 3)
 
 
 def track_size(race: int) -> int:

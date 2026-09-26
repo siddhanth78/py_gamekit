@@ -25,8 +25,8 @@ from mission_ui import MissionPanel
 from missions import TITLES, Missions
 from parking import Parking
 from pedestrians import Pedestrians
-from progression import CENTER_RACES, ISLAND_LEVEL, REGIONS, rating
-from racers import LAPS, REQUIRED_LEVELS, cut_chance, rival, track_size
+from progression import CENTER_RACES, ISLAND_LEVEL, REGIONS
+from racers import LAPS, RIVAL_RATINGS, rival, track_size
 from pause_menu import PauseMenu
 from player_save import PlayerSave
 from traffic import Traffic
@@ -237,6 +237,13 @@ class Game:
                     self._start_center_race(center)
                 elif giver:
                     self._accept(giver)
+            elif outcome == "decline" and giver:
+                # The giver offers something easy for half the mastery (rounded down, at
+                # least 1), shown straight away; at 1 mastery DECLINE goes away.
+                offer = self.missions.decline(giver)
+                self.pending_offer = giver
+                self.panel.show_offer(self.missions.preview(offer))
+                self.autosave.request()
             return True
         if action in ("pause", "focus_lost"):
             self.menu.toggle()
@@ -301,12 +308,10 @@ class Game:
         race = won + 1
         name, line, _ = rival(region, race)
         self.pending_center, self.pending_offer = region, None
-        # The rival is calibrated so a flawless driver at REQUIRED_LEVELS just wins:
-        # its rating is that level's.
         self.panel.show_offer({
             "title": title, "difficulty": f"Race {race} / {CENTER_RACES}",
             "detail": f'{name}: "{line}"',
-            "rules": f"{name} ({rating(REQUIRED_LEVELS[race - 1])}) VS "
+            "rules": f"{name} ({RIVAL_RATINGS[race - 1]}) VS "
                      f"You ({self.missions.progress.rating(region)})",
             "reward": f"{LAPS} laps on {SURFACE_NAMES[region]}  ·  "
                       + ("win to become champion" if race == CENTER_RACES
@@ -316,14 +321,13 @@ class Game:
     def _start_center_race(self, region):
         race = self.missions.progress.races[region] + 1
         # Each race has its own seed-generated track; later races are bigger blobs
-        # (longer laps, more corners). The rival is calibrated to the track.
+        # (longer laps, more corners). The rival drives at its rating, tuned to the track.
         track = {"kind": "circuit", "theme": region, "laps": LAPS,
-                 "seed": f"{self.world.seed}-{region}-{race}", "size": track_size(race),
-                 "target_level": REQUIRED_LEVELS[race - 1], "cut_chance": cut_chance(race)}
+                 "seed": f"{self.world.seed}-{region}-{race}", "size": track_size(race)}
         _, _, sprite = rival(region, race)
         scale = self.missions.progress.speed_scale(region)
         self.race = DragRace(track, None, scale, race * 101 + REGIONS.index(region),
-                             rival_sprite=sprite)
+                             rival_sprite=sprite, rival_rating=RIVAL_RATINGS[race - 1])
         self.center_race = (region, race)
         self.race_over = 0.0
         self.zoom = DRIVE_ZOOM
@@ -355,8 +359,7 @@ class Game:
                          else f"{name} finished first ({race.times['rival']:.1f} s)")
             lines = [beaten_by,
                      "Talk to the center to try again",
-                     f"Suggested level {REQUIRED_LEVELS[number - 1]}  ·  your {region} level "
-                     f"{progress.levels[region]}"]
+                     f"{name} ({RIVAL_RATINGS[number - 1]}) VS You ({progress.rating(region)})"]
         self.autosave.request()
         self.panel.show_lines(title, chip, lines)
 
@@ -402,8 +405,8 @@ class Game:
         offer = self.missions.accept(giver)
         if offer.type == "drag":
             scale = self.missions.progress.speed_scale(giver.region)
-            # The rival is fixed to the player's car when the offer was made.
-            self.race = DragRace(offer.track, self.missions.rival_multiplier(offer), scale, offer.seed)
+            # The rival's rating was fixed when the offer was made.
+            self.race = DragRace(offer.track, None, scale, offer.seed, rival_rating=offer.rating)
             self.race_over = 0.0
             self.zoom = DRIVE_ZOOM
 
