@@ -1,9 +1,72 @@
 {
-  "version": 2,
+  "version": 3,
   "mode": "drive",
   "car": {
-    "x": 10518.899424497384,
-    "y": 16374.313559551802,
-    "heading": 218.27366826922955
+    "x": 18378.383909358432,
+    "y": 8792.637816601631,
+    "heading": 188.91252890653897
+  },
+  "missions": {
+    "progress": {
+      "city": {
+        "level": 1,
+        "mastery": 5,
+        "completed": {
+          "delivery": 1,
+          "speed": 0,
+          "drag": 1
+        }
+      },
+      "jungle": {
+        "level": 1,
+        "mastery": 0,
+        "completed": {
+          "delivery": 0,
+          "speed": 0,
+          "drag": 0
+        }
+      },
+      "desert": {
+        "level": 1,
+        "mastery": 1,
+        "completed": {
+          "delivery": 0,
+          "speed": 1,
+          "drag": 0
+        }
+      },
+      "snow": {
+        "level": 1,
+        "mastery": 0,
+        "completed": {
+          "delivery": 0,
+          "speed": 0,
+          "drag": 0
+        }
+      },
+      "rural": {
+        "level": 1,
+        "mastery": 0,
+        "completed": {
+          "delivery": 0,
+          "speed": 0,
+          "drag": 0
+        }
+      }
+    },
+    "counter": 4,
+    "offers": {
+      "city-speed": {
+        "type": "speed",
+        "scale": 1.175,
+        "target": [
+          8612.038984548999,
+          18038.312525104455
+        ],
+        "track": null,
+        "seed": 860340070
+      }
+    },
+    "queued": null
   }
 }

@@ -21,19 +21,22 @@ from gl_utils import (
 )
 
 
-# Camp gear sits with props; people draw above both but below vehicles.
+# Race-level track tiles sit with roads; camp gear with props; people above both but
+# below vehicles; floating mission badges over everything.
 DRAW_ORDER = (
-    "terrain-atlas", "road-atlas", "structure-atlas", "prop-atlas", "camp-atlas",
-    "people-atlas", "vehicle-atlas",
+    "terrain-atlas", "road-atlas", "track-atlas", "structure-atlas", "prop-atlas",
+    "camp-atlas", "people-atlas", "vehicle-atlas", "marker-atlas",
 )
 CAPACITY = {
     "terrain-atlas": 8192,
     "road-atlas": 4096,
     "structure-atlas": 1024,
     "prop-atlas": 1024,
+    "track-atlas": 4096,
     "camp-atlas": 256,
     "people-atlas": 512,
     "vehicle-atlas": 512,
+    "marker-atlas": 128,
 }
 
 

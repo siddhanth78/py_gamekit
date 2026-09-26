@@ -123,16 +123,21 @@ class Hud:
         self.unit = DynamicLabel(ctx, (44 * k, 14 * k), 14 * k + 1, bold=True)
         self.unit.set("KM/H")
         self.prompt = DynamicLabel(ctx, (320, 28), 24, bold=True, align="center")
+        self.mission_title = DynamicLabel(ctx, (360, 32), 26, bold=True)
+        self.mission_line = DynamicLabel(ctx, (360, 28), 24)
+        self.banner = DynamicLabel(ctx, (640, 120), 110, bold=True, align="center")
         self._text_due = self._speed_due = 0.0
         # One instance buffer per label: rewriting a single shared buffer between
         # draws in the same frame stalls until the GPU finishes the previous draw.
         self.quads = {}
-        for label in (self.region, self.guide, self.speed, self.unit, self.prompt):
+        for label in (self.region, self.guide, self.speed, self.unit, self.prompt,
+                      self.mission_title, self.mission_line, self.banner):
             instances = get_new_instances(0, 0, 1)[2]
             self.quads[id(label)] = (instances, *build_tex_objs(ctx, self.text_program, instances))
 
     def render(self, speed: float, region: str, guide: str, prompt: str = "",
-               show_speed: bool = True):
+               show_speed: bool = True, mission=None, banner: str = ""):
+        """mission: (title, line) for the top-right panel; banner: big centered text."""
         width, height = self.viewport
         # Re-rendering text uploads a texture, so refresh it a few times a second.
         now = time.perf_counter()
@@ -144,6 +149,10 @@ class Hud:
             self.speed.set(f"{abs(speed):.0f}")
             self._speed_due = now + SPEED_REFRESH
         self.prompt.set(prompt)
+        if mission:
+            self.mission_title.set(mission[0])
+            self.mission_line.set(mission[1])  # Timers and crash flashes update every frame.
+        self.banner.set(banner)
 
         # Top-left: where you are and where the racing center is.
         info_w, info_h = 384, 84
@@ -181,6 +190,25 @@ class Hud:
                 (self.speed, self.speed.record(speed_left + 28 * k, speed_y, tint)),
                 (self.unit, self.unit.record(bar_left, speed_y - 7 * k, MUTED)),
             ]
+        if mission:
+            # Top-right mission panel; the accent turns red while a crash flashes.
+            mission_w, mission_h = 384, 84
+            mission_x = width - MARGIN - mission_w // 2
+            alert = mission[1].startswith("CRASH") or mission[1].startswith("Time 0.")
+            accent = (212, 80, 66, 255) if alert else HUD_ACCENT
+            rects += [
+                _rect(mission_x + 4, info_y + 5, mission_w, mission_h, (8, 14, 18, 120)),
+                _rect(mission_x, info_y, mission_w, mission_h, HUD_PANEL),
+                _rect(width - MARGIN - 3, info_y, 6, mission_h, accent),
+            ]
+            left = width - MARGIN - mission_w + 16
+            labels += [
+                (self.mission_title, self.mission_title.record(left, MARGIN + 28, CREAM)),
+                (self.mission_line, self.mission_line.record(
+                    left, MARGIN + 60, (240, 140, 120) if alert else MUTED)),
+            ]
+        if banner:
+            labels.append((self.banner, self.banner.record(width // 2, height // 2 - 120, CREAM)))
         if prompt:
             # Bottom-center interaction prompt, e.g. "E  Get in".
             prompt_y = height - MARGIN - 20

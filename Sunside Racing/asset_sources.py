@@ -589,10 +589,112 @@ def camp() -> Atlas:
     return a
 
 
+def marker(p: Painter, name: str):
+    """Floating 32 px mission badges; harder givers get a red badge with a gold ring."""
+    hard = name.endswith("_hard")
+    kind = name.removesuffix("_hard").removeprefix("icon_")
+    p.ellipse(16, 17, 14, 14, "#1d2a30")                  # Outline and drop shadow.
+    p.ellipse(16, 15, 13, 13, "#f2ca57" if hard else "#27353d")
+    p.ellipse(16, 15, 11, 11, "#c9453c" if hard else "#f4ead0")
+    ink = "#fff4d6" if hard else "#27353d"
+    if kind == "delivery":
+        p.rect(9, 10, 23, 21, "#a47a4a")                  # Parcel with tape.
+        p.rect(9, 14, 23, 16, "#e8d49a")
+        p.rect(15, 10, 17, 21, "#e8d49a")
+    elif kind == "speed":
+        p.ellipse(16, 16, 7, 7, ink)                      # Stopwatch.
+        p.ellipse(16, 16, 5, 5, "#c9453c" if hard else "#f4ead0")
+        p.rect(15, 7, 18, 9, ink)
+        p.rect(16, 11, 17, 17, ink)
+        p.rect(16, 16, 20, 17, ink)
+    elif kind == "drag":
+        p.rect(9, 8, 10, 24, ink)                         # Checkered flag on a pole.
+        for i in range(4):
+            for j in range(3):
+                if (i + j) % 2 == 0:
+                    p.rect(10 + i * 3, 9 + j * 3, 13 + i * 3, 12 + j * 3, ink)
+    elif kind == "dropoff":
+        p.rect(14, 8, 18, 16, "#3f9a5a")                  # Down arrow: deliver here.
+        p.rect(10, 16, 22, 18, "#3f9a5a")
+        p.rect(12, 18, 20, 20, "#3f9a5a")
+        p.rect(14, 20, 18, 22, "#3f9a5a")
+    elif kind == "finish":
+        for i in range(4):
+            for j in range(4):
+                if (i + j) % 2 == 0:
+                    p.rect(10 + i * 3, 9 + j * 3, 13 + i * 3, 12 + j * 3, ink)
+
+
+MARKERS = ("icon_delivery", "icon_speed", "icon_drag", "icon_dropoff",
+           "icon_delivery_hard", "icon_speed_hard", "icon_drag_hard", "icon_finish")
+
+
+def markers() -> Atlas:
+    a = Atlas("marker-atlas", 32, 4, 2)
+    for i, name in enumerate(MARKERS):
+        marker(a.tile(name, i % 4, i // 4), name)
+    return a
+
+
+def track_tile(p: Painter, name: str):
+    """Race-level tiles, 64 px. Edge art sits on the north side; the engine rotates it."""
+    asphalt, line = "#3b4148", "#eceae0"
+    if name == "track_fence":
+        p.rect(0, 26, 64, 42, "#24414a")                  # Concrete barrier wall.
+        p.rect(0, 22, 64, 38, "#b9bdb8")
+        for x in range(0, 64, 16):
+            p.rect(x, 22, x + 8, 26, "#c9453c")           # Red and white safety band.
+        p.rect(0, 36, 64, 38, "#8a8f8f")
+        return
+    if name == "track_tires":
+        for cx, cy in ((20, 22), (42, 22), (20, 42), (42, 42)):
+            p.ellipse(cx + 1, cy + 2, 10, 10, "#24414a")
+            p.ellipse(cx, cy, 10, 10, "#23282c")
+            p.ellipse(cx, cy, 5, 5, "#4a5157")
+        return
+    p.rect(0, 0, 64, 64, asphalt)
+    p.flecks(900 + sum(map(ord, name)), 18, ("#474e56", "#30353b"))
+    def curb(horizontal: bool):
+        for i in range(0, 64, 8):
+            color = "#c9453c" if (i // 8) % 2 == 0 else "#f4f0e6"
+            if horizontal:
+                p.rect(i, 0, i + 8, 5, color)
+            else:
+                p.rect(0, i, 5, i + 8, color)
+    if name in ("track_edge", "track_corner"):
+        curb(True)
+        p.rect(0, 5, 64, 8, line)
+    if name == "track_corner":
+        curb(False)
+        p.rect(5, 5, 8, 64, line)
+    elif name == "track_inner":
+        p.rect(0, 0, 8, 8, "#c9453c")                     # Curb nub on the inside apex.
+        p.rect(8, 0, 11, 11, line)
+        p.rect(0, 8, 11, 11, line)
+    elif name == "track_start":
+        p.rect(28, 0, 36, 64, line)                       # Line across the track (N-S).
+    elif name == "track_finish":
+        for j in range(0, 64, 8):
+            for i in (24, 32):
+                p.rect(i, j, i + 8, j + 8, line if (i // 8 + j // 8) % 2 == 0 else "#1d2226")
+
+
+TRACK_TILES = ("track_asphalt", "track_edge", "track_corner", "track_inner",
+               "track_start", "track_finish", "track_fence", "track_tires")
+
+
+def track() -> Atlas:
+    a = Atlas("track-atlas", 64, 4, 2)
+    for i, name in enumerate(TRACK_TILES):
+        track_tile(a.tile(name, i % 4, i // 4), name)
+    return a
+
+
 def main():
     BITMAP.mkdir(exist_ok=True)
     ASSETS.mkdir(exist_ok=True)
-    atlases = [terrain(), roads(), vehicles(), structures(), props(), people(), camp()]
+    atlases = [terrain(), roads(), vehicles(), structures(), props(), people(), camp(),
+                markers(), track()]
     manifest = {"format": 1, "art_style": "top-down pixel art", "atlases": {}}
     for atlas in atlases:
         (BITMAP / f"{atlas.name}.json").write_text(json.dumps(atlas.spec(), indent=2) + "\n")

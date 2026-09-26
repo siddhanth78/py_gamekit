@@ -30,8 +30,10 @@ Roads and scenery
 Racing progression
 - One racing center in each mainland region: city, jungle, desert, snow,
   rural. Each center has 10 races with increasing difficulty (50 total).
-- Completing all 50 mainland races unlocks the island's final five races.
-- Races are distinct routes through the shared world, not separate maps.
+- The island unlocks once every mainland center is fully complete (see
+  Missions; center races are 3-lap races scaled by center progression).
+- Center races run through the shared world; mission drag races load their
+  own empty-road levels.
 - Race routes, opponents, rewards, and precise unlock rules beyond the island
   requirement remain to be designed.
 
@@ -357,6 +359,154 @@ Save on-foot mode and walker position completed (2026-09-25)
   resumed on foot, walked, quit, and saved walk mode.
 - Removed note: "Quitting on foot saves the car's position; you start the
   next session in the car" no longer applies.
+
+Missions (built 2026-09-26; design below, build notes at the end)
+- Mission givers: 3 NPCs per mainland region, one per mission type
+  (delivery, speed check, drag race). Only one mission can be active at a
+  time. After a completion the giver offers a fresh mission.
+- Mastery points come only from these missions and are the player's only
+  way to upgrade. Mastery unlocks speed in regions and unlocks additional,
+  harder NPCs that offer the same mission types for more mastery.
+- Delivery: take a package from the giver to another NPC, possibly in
+  another region. No time limit. Start at 100 points and lose points per
+  crash by difficulty: Easy 5, Medium 10, Hard 15. At least 75 points gives
+  2 mastery, at least 50 gives 1, below 50 gives 0.
+- Speed check: reach the target before the timer runs out.
+  Timer = distance / (player top speed x 0.8 x s). Success gives 1 mastery.
+- Drag race: loads its own empty-road level, either a quarter-mile straight
+  or a single-lap circuit, against one opponent. Win gives 3, loss gives 0.
+- Difficulty scale s is random in 0.5-1.25 and not tied to the player. The
+  opponent's top speed, acceleration, and cornering grip are s times the
+  player's. The AI brakes before turns and accelerates on straights. The
+  label is set by s.
+- Failure and retry: a failed mission ends and returns the player to the
+  NPC who gave it. The same mission can be retried.
+- Racing centers are separate from missions: 3-lap races with opponents
+  scaled by that center's progression. The island unlocks when every
+  mainland center is fully complete. This replaces the earlier "50 races
+  unlock the island" wording. Race-center races are a later feature.
+- Proposed defaults where unanswered:
+  - Crash: a collision that stops the car from above 40 px/s, with a 1 s
+    grace period.
+  - Labels: s < 0.8 Easy, s < 1.05 Medium, otherwise Hard.
+  - Distance: straight line x 1.3 for detours, since the jungle, desert,
+    and beach have no roads.
+  - Drag level: straight or single-lap circuit chosen at random, themed to
+    the giver's region.
+  - Harder givers skew s upward (0.8-1.25).
+  - Givers: placed near each region's racing center plaza, marked with a
+    floating icon, with an E prompt and a mission offer panel (type,
+    difficulty, reward; accept or decline).
+  - Mastery saved in player.json version 3 and shown in the HUD.
+- The user confirmed the proposed defaults above (2026-09-26): three
+  difficulty labels, the crash rule, straight-line x 1.3 distance, givers
+  near the plazas, and a random drag level type. Levels (below) replaced the
+  earlier +2%-per-mastery and 10/25-mastery ideas.
+- Levels (agreed 2026-09-26, supersedes per-mastery speed and the 10/25
+  mastery thresholds): mastery feeds a level. Going from level n to n+1
+  costs 10 x n mastery. All upgrades happen on level-up.
+  - Rewards rise by 1 per level (agreed, replaces a level multiplier so
+    that higher levels get harder): mission mastery = base reward +
+    (level - 1) for any earning result (delivery 2/1, speed check 1, drag
+    win 3). Failed or zero results stay 0. With a base of about 2 per
+    mission: 5 missions for level 1 to 2, about 8 for level 5 to 6, about
+    9 for level 10 to 11, approaching 10 per level.
+  - Harder mission givers unlock at level 5 (agreed) and double the
+    level-adjusted reward (agreed).
+  - Proposed defaults: one level per region (mastery from a region's givers
+    counts toward that region); +4% top speed in that region per level.
+- Mission persistence (agreed 2026-09-26): player.json (version 3) stores
+  per-region mastery, each giver's pending offer (type, difficulty scale,
+  destination or drag level, reward) so offers survive restarts, and the
+  ongoing mission. On exit an ongoing mission is saved as a queued mission:
+  on the next launch it is not in progress but waits at its giver, and
+  restarts from the beginning when the player accepts it again. Delivery
+  points and speed-check timers reset. Only one queued or ongoing mission
+  exists at a time.
+
+Mission system build notes (2026-09-26)
+- Modules:
+  - progression.py: per-region level and mastery. Level n to n+1 costs
+    10 x n. Reward = base + (level - 1), doubled by veterans; nothing earned
+    stays 0. +4% top speed per level in that region (the car's speed_scale;
+    beach, sea, and island stay at 1.0). Veterans unlock at level 5.
+  - missions.py: 30 givers (delivery, speed check, drag, plus veteran
+    copies) found on open, off-road ground about 200 px around each
+    mainland center. Offers are seeded and persisted per giver; veterans
+    roll s in 0.8-1.25. Delivery and speed-check destinations are 3,000-
+    15,000 and 2,000-6,000 px away on open drivable land. The speed timer
+    samples the straight line, using each region's top speed x the level
+    speed scale x 0.8 x s, times 1.3.
+  - drag_race.py: TrackLevel builds either a 4,032 px quarter-mile straight
+    or one of three rectilinear single-lap circuits, 3 tiles wide, with
+    curbs, inner apexes, barrier walls, and tire stacks, themed by the
+    giver's region. It stands in for World for Car and CollisionManager.
+    Rival: stats are s times the base car (not the player's upgrades, so
+    levels are the player's edge). It brakes to 70 x s px/s for corners,
+    reacts 0.2-0.6 s late, starts in the right lane, and is solid to the
+    player. Race: 3 s countdown; first to finish wins.
+  - mission_ui.py: modal offer panel (Accept / Decline) and result panel
+    (success or failed, mastery, level-up, veterans unlocked).
+  - HUD: top-right mission panel (points and crashes, or the timer, with a
+    red crash flash) and a big center banner (countdown, GO!, win or lose).
+    The guide arrow and text point at the mission target or queued giver.
+  - New assets: marker-atlas (mission badges, veteran variants, drop-off
+    and finish) and track-atlas (track tiles, barrier, tires).
+- Flow: walk up to a giver, press E, accept. Delivery and speed checks run
+  in the open world (crash = collision stopping the car above 40 px/s, 1 s
+  grace). A delivery below 50 points fails immediately. The speed clock
+  starts when you drive off. Drag races load their level, then return you
+  on foot beside the giver with your car called nearby. Failure also
+  returns you to the giver; the same offer stays for a retry. Success
+  brings a fresh offer.
+- Save: player.json version 3 adds "missions": progress, offer counter,
+  offers per giver, and queued. An ongoing mission, even mid-race, saves
+  as queued and restarts from scratch when accepted again.
+- main.py is now a Game class (world and race phases, panels, input).
+- Tests: test_missions.py (20). Suite total 73. End-to-end checks: offer,
+  accept, save as queued, deliver with a level update, drag race won and
+  returned to the giver, veterans at level 5. World frame with missions
+  is about 1.8 ms.
+- Balance note: a perfect player beats rivals up to s = 1.0 at level 1,
+  1.1 at level 3, and 1.25 at level 7 (both straights and circuits).
+- Known limits: givers and recipients are not solid; the rival does not
+  avoid the player; recipients stand where the offer rolled, sometimes in
+  another region's wilds; center races (3 laps) are not built yet.
+
+Pause-menu mastery page completed (2026-09-26)
+- The pause menu now has Resume / Mastery / Help / Exit. The Mastery page
+  shows one row per mainland region: level, progress bar and mastery toward
+  the next level, top-speed bonus, whether veteran givers are unlocked,
+  missions completed by type (delivery, speed check, drag), and the
+  region's ongoing or queued mission. Esc or Back returns to the button
+  you came from.
+- progression.Progress now tracks completed missions per region and type.
+  They are saved inside "missions.progress"; older saves start at 0.
+  Missions.mastery_rows() feeds the page each frame while it is open. Text
+  cells are DynamicLabels with their own quad buffers, drawn with an atlas
+  grid of (1, 1).
+- Tests: menu navigation for four buttons and both sub-pages, and a
+  mastery-rows test (levels, bonus, veterans, completions,
+  ongoing/queued, save round trip). Suite total 74.
+
+Fast travel completed (2026-09-26)
+- At level 3 in a region (progression.FAST_TRAVEL_LEVEL), the pause menu's
+  Mastery page shows a TRAVEL button on that region's row. Other rows show
+  "Lvl 3" (locked), "Here" (you are in it), or "Busy" (a mission is
+  ongoing, including drag races, so travel cannot shortcut one). Back
+  starts selected, and the selection is kept when rows refresh, so Enter
+  never travels by accident.
+- fast_travel.destination(): follow the straight line from the player
+  toward the region's racing center to the first point inside the region,
+  go 192 px further in, then find the nearest clear, car-sized spot in that
+  region (within 400 px, avoiding traffic, pedestrians, and scenery).
+  The player lands in the car, stopped and facing into the region; walking
+  ends and the camera returns to driving zoom. If no spot is clear, a
+  message panel says so.
+- Tests: travel status per region, landing spots in all four other regions
+  (in-region, clear, near the border), menu travel buttons, and selection
+  surviving row refreshes. Suite total 77. End-to-end: menu to TRAVEL to
+  landing 467 m away in the snow region.
 
 Technical basis
 - Keep game-specific code in this marked project. Adapt game_state.py,

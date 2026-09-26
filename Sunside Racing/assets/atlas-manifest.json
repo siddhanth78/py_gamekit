@@ -1450,6 +1450,142 @@
           "source_row": 1
         }
       }
+    },
+    "marker-atlas": {
+      "png": "marker-atlas.png",
+      "bitmap": "../bitmap/marker-atlas.json",
+      "cell_px": 32,
+      "atlas_grid": [
+        4,
+        2
+      ],
+      "tile_origin": "bottom-left, as used by shaders/tex.frag",
+      "sprites": {
+        "icon_delivery": {
+          "tile": [
+            0,
+            1
+          ],
+          "source_row": 0
+        },
+        "icon_speed": {
+          "tile": [
+            1,
+            1
+          ],
+          "source_row": 0
+        },
+        "icon_drag": {
+          "tile": [
+            2,
+            1
+          ],
+          "source_row": 0
+        },
+        "icon_dropoff": {
+          "tile": [
+            3,
+            1
+          ],
+          "source_row": 0
+        },
+        "icon_delivery_hard": {
+          "tile": [
+            0,
+            0
+          ],
+          "source_row": 1
+        },
+        "icon_speed_hard": {
+          "tile": [
+            1,
+            0
+          ],
+          "source_row": 1
+        },
+        "icon_drag_hard": {
+          "tile": [
+            2,
+            0
+          ],
+          "source_row": 1
+        },
+        "icon_finish": {
+          "tile": [
+            3,
+            0
+          ],
+          "source_row": 1
+        }
+      }
+    },
+    "track-atlas": {
+      "png": "track-atlas.png",
+      "bitmap": "../bitmap/track-atlas.json",
+      "cell_px": 64,
+      "atlas_grid": [
+        4,
+        2
+      ],
+      "tile_origin": "bottom-left, as used by shaders/tex.frag",
+      "sprites": {
+        "track_asphalt": {
+          "tile": [
+            0,
+            1
+          ],
+          "source_row": 0
+        },
+        "track_edge": {
+          "tile": [
+            1,
+            1
+          ],
+          "source_row": 0
+        },
+        "track_corner": {
+          "tile": [
+            2,
+            1
+          ],
+          "source_row": 0
+        },
+        "track_inner": {
+          "tile": [
+            3,
+            1
+          ],
+          "source_row": 0
+        },
+        "track_start": {
+          "tile": [
+            0,
+            0
+          ],
+          "source_row": 1
+        },
+        "track_finish": {
+          "tile": [
+            1,
+            0
+          ],
+          "source_row": 1
+        },
+        "track_fence": {
+          "tile": [
+            2,
+            0
+          ],
+          "source_row": 1
+        },
+        "track_tires": {
+          "tile": [
+            3,
+            0
+          ],
+          "source_row": 1
+        }
+      }
     }
   }
 }

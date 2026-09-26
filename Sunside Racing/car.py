@@ -15,6 +15,16 @@ ACCELERATION = 85          # px/s^2 before terrain grip.
 BRAKING = 420
 REVERSE_ACCELERATION = 90
 TOP_SPEED = 170            # Fastest surface (city); the HUD scales its bar to this.
+# Surface -> (grip, top speed px/s). Top speeds stay low so the car is
+# controllable in traffic; "track" is the asphalt of mission race levels.
+SURFACES = {
+    "city": (1.0, TOP_SPEED), "jungle": (0.72, 110),
+    "desert": (0.78, 132), "snow": (0.55, 128),
+    "rural": (0.80, 140), "beach": (0.68, 105),
+    "island": (0.90, 155), "track": (1.0, TOP_SPEED),
+}
+OFF_SURFACE = (0.75, 110)
+CRASH_SPEED = 40.0         # A hit that stops the car from above this counts as a crash.
 RESPAWN_STEP = 8        # Search ring spacing in pixels.
 RESPAWN_CLEARANCE = 16  # Extra width and length so the car is not left wedged.
 
@@ -25,6 +35,7 @@ class Car:
     y: float = START_Y
     heading: float = 0.0  # Degrees clockwise from north.
     speed: float = 0.0
+    crashed: bool = False
 
     def reset(self):
         self.x, self.y, self.heading, self.speed = START_X, START_Y, 0.0, 0.0
@@ -49,16 +60,16 @@ class Car:
                 255, 255, 255, 255, 0, 24, 44, -self.heading]
 
     def update(self, dt: float, throttle: int, steer: int, handbrake: bool,
-               world, collisions):
+               world, collisions, speed_scale: float = 1.0):
+        """Drive one step. speed_scale multiplies top speed (region level upgrades).
+
+        Sets self.crashed when a collision stops the car from above CRASH_SPEED.
+        """
+        self.crashed = False
         dt = min(max(dt, 0.0), 0.05)
         surface = world.region_at(self.x, self.y)
-        # Top speeds are kept low so the car stays controllable in traffic.
-        grip, max_speed = {
-            "city": (1.0, TOP_SPEED), "jungle": (0.72, 110),
-            "desert": (0.78, 132), "snow": (0.55, 128),
-            "rural": (0.80, 140), "beach": (0.68, 105),
-            "island": (0.90, 155),
-        }.get(surface, (0.75, 110))
+        grip, max_speed = SURFACES.get(surface, OFF_SURFACE)
+        max_speed *= speed_scale
         # Gentle acceleration (about 2 s to top speed in the city), firm brakes.
         if throttle > 0:
             self.speed += (ACCELERATION if self.speed >= 0 else BRAKING) * grip * dt
@@ -88,5 +99,6 @@ class Car:
             if collisions.can_move(self.collision_record(candidate_x, candidate_y)):
                 self.x, self.y = candidate_x, candidate_y
             else:
+                self.crashed = abs(self.speed) > CRASH_SPEED
                 self.speed = 0.0
                 break

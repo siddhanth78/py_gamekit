@@ -13,9 +13,10 @@ from car import Car
 from walker import Walker, exit_spot
 
 
-# Version 2 adds the mode and the walker; version 1 saves (car only) still load.
-SAVE_VERSION = 2
-READABLE_VERSIONS = (1, 2)
+# Version 2 added the mode and the walker; version 3 adds missions and progression.
+# Versions 1 and 2 still load.
+SAVE_VERSION = 3
+READABLE_VERSIONS = (1, 2, 3)
 APP_NAME = "pygamekit-racer"
 
 
@@ -58,6 +59,8 @@ class PlayerSave:
         self.legacy_path = Path(legacy_path) if legacy_path is not None else (
             legacy_save_path() if path is None else None
         )
+        # Mission and progression state from the last load (validated by missions.Missions).
+        self.missions_data: dict | None = None
 
     def load(self, collisions) -> Car | None:
         """Return a stationary car at a valid saved position, if available."""
@@ -92,6 +95,8 @@ class PlayerSave:
             )
             if not collisions.can_move(car.collision_record()):
                 raise ValueError("Saved car position is blocked or outside the world")
+            missions = payload.get("missions")
+            self.missions_data = missions if isinstance(missions, dict) else None
             mode = payload.get("mode", "drive")
             if mode not in ("drive", "walk"):
                 raise ValueError(f"Unknown save mode {mode!r}")
@@ -125,13 +130,15 @@ class PlayerSave:
         spot = exit_spot(car, collisions)
         return Walker(*spot, heading=car.heading) if spot else None
 
-    def save(self, car: Car, walker: Walker | None = None):
+    def save(self, car: Car, walker: Walker | None = None, missions: dict | None = None):
         """Replace the save only after the new JSON has been fully written."""
         payload = {
             "version": SAVE_VERSION,
             "mode": "walk" if walker else "drive",
             "car": _pose(car),
         }
+        if missions is not None:
+            payload["missions"] = missions
         if walker:
             payload["walker"] = _pose(walker)
         self.path.parent.mkdir(parents=True, exist_ok=True)

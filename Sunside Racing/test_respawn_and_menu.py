@@ -53,25 +53,56 @@ class PauseMenuInputTests(unittest.TestCase):
     def menu(self):
         menu = PauseMenu.__new__(PauseMenu)  # Input logic only; skip GL setup.
         menu.viewport, menu.open, menu.page, menu.selected = (1280, 720), True, "main", 0
+        menu.mastery_rows = []
         return menu
+
+    def test_travel_buttons_only_for_ready_regions(self):
+        menu = self.menu()
+        menu.mastery_rows = [{"region": r, "travel": t} for r, t in (
+            ("city", "ready"), ("jungle", "locked"), ("desert", "here"),
+            ("snow", "ready"), ("rural", "busy"))]
+        menu.selected = menu.items.index("mastery")
+        menu.handle("confirm", None)
+        self.assertEqual(menu.items, ("travel:city", "travel:snow", "back"))
+        self.assertEqual(menu.selected, 2)                  # Back is preselected.
+        menu.handle("menu_down", None)
+        self.assertEqual(menu.handle("confirm", None), "travel:city")
+        (cx, cy), (sx, sy), _ = menu._button_centers()
+        self.assertLess(cy, sy)                             # Buttons sit on their rows.
+        self.assertEqual(menu.handle("click", (sx, sy)), "travel:snow")
+
+    def test_selection_survives_rows_arriving_after_the_page_opens(self):
+        menu = self.menu()
+        menu.cells = []                                     # No GL text cells in this test.
+        menu.selected = menu.items.index("mastery")
+        menu.handle("confirm", None)                        # Rows not loaded yet: only Back.
+        rows = [{"region": "city", "travel": "ready"}, {"region": "snow", "travel": "ready"}]
+        menu.set_mastery(rows)
+        self.assertEqual(menu.items[menu.selected], "back")  # Still Back, never a travel button.
+        menu.handle("menu_up", None)
+        menu.set_mastery(rows[1:])                           # City's button disappears.
+        self.assertEqual(menu.items[menu.selected], "travel:snow")
 
     def test_keyboard_navigation_and_confirm(self):
         menu = self.menu()
+        self.assertEqual(menu.items, ("resume", "mastery", "help", "exit"))
         self.assertEqual(menu.handle("confirm", None), "resume")
-        menu.handle("menu_down", None)
-        menu.handle("menu_down", None)
+        for _ in range(3):
+            menu.handle("menu_down", None)
         self.assertEqual(menu.handle("confirm", None), "exit")
         menu.handle("menu_down", None)
         self.assertEqual(menu.selected, 0)
         self.assertEqual(menu.handle("pause", None), "resume")
 
-    def test_help_page_opens_and_returns(self):
+    def test_sub_pages_open_and_return_to_their_button(self):
         menu = self.menu()
-        menu.handle("menu_down", None)
-        self.assertIsNone(menu.handle("confirm", None))
-        self.assertEqual(menu.page, "help")
-        self.assertIsNone(menu.handle("pause", None))  # Esc on help goes back, not resume.
-        self.assertEqual((menu.page, menu.items[menu.selected]), ("main", "help"))
+        for page in ("mastery", "help"):
+            menu.selected = menu.items.index(page)
+            self.assertIsNone(menu.handle("confirm", None))
+            self.assertEqual(menu.page, page)
+            self.assertIsNone(menu.handle("pause", None))  # Esc goes back, not resume.
+            self.assertEqual((menu.page, menu.items[menu.selected]), ("main", page))
+        menu.selected = menu.items.index("mastery")
         menu.handle("confirm", None)
         (bx, by), = menu._button_centers()
         self.assertIsNone(menu.handle("click", (bx, by)))
@@ -79,9 +110,9 @@ class PauseMenuInputTests(unittest.TestCase):
 
     def test_mouse_hover_and_click(self):
         menu = self.menu()
-        (rx, ry), _, (ex, ey) = menu._button_centers()
+        (rx, ry), _, _, (ex, ey) = menu._button_centers()
         self.assertIsNone(menu.handle("pointer", (ex, ey)))
-        self.assertEqual(menu.selected, 2)
+        self.assertEqual(menu.selected, 3)
         self.assertEqual(menu.handle("click", (rx + 100, ry)), "resume")
         self.assertIsNone(menu.handle("click", (5, 5)))
 

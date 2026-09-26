@@ -1,11 +1,11 @@
-"""Pause overlay: dimmed world, a framed panel, Resume / Help / Exit, and a controls page."""
+"""Pause overlay: Resume / Mastery / Help / Exit, a per-region mastery page, and controls."""
 
 from __future__ import annotations
 
 import moderngl
 
 from gl_utils import build_rect_objs, build_tex_objs, check_mouse_collisions, get_new_instances, load_program, to_gl
-from ui_text import LabelAtlas
+from ui_text import DynamicLabel, LabelAtlas
 
 
 # Text is rendered white into equal atlas cells, then tinted per state by the shader.
@@ -16,7 +16,7 @@ CONTROLS = (
     ("A  D  /  LEFT  RIGHT", "Steer  ·  walk west, east"),
     ("SPACE", "Handbrake"),
     ("SHIFT", "Run while on foot"),
-    ("E", "Get out of or into the car"),
+    ("E", "Get in or out  ·  talk to mission givers"),
     ("Q", "Call your car (on foot)"),
     ("R", "Unstick yourself nearby"),
     ("ESC", "Pause menu"),
@@ -24,6 +24,8 @@ CONTROLS = (
 LABELS = {
     "paused": ("PAUSED", 72, True, "center"),
     "controls": ("CONTROLS", 60, True, "center"),
+    "mastery_title": ("MASTERY", 60, True, "center"),
+    "mastery": ("MASTERY", 36, True, "center"),
     "resume": ("RESUME", 36, True, "center"),
     "help": ("HELP", 36, True, "center"),
     "exit": ("EXIT", 36, True, "center"),
@@ -33,7 +35,7 @@ LABELS = {
     **{f"key{i}": (key, 28, True, "left") for i, (key, _) in enumerate(CONTROLS)},
     **{f"act{i}": (action, 28, False, "left") for i, (_, action) in enumerate(CONTROLS)},
 }
-PAGES = {"main": ("resume", "help", "exit"), "help": ("back",)}
+PAGES = {"main": ("resume", "mastery", "help", "exit"), "help": ("back",), "mastery": ("back",)}
 
 INK = (32, 45, 52)
 ACCENT = (242, 202, 87)
@@ -45,7 +47,14 @@ BUTTON_EDGE = (78, 104, 112, 255)
 KEY_CAP = (44, 66, 76, 255)
 SHADOW = (8, 14, 18, 150)
 
-PANEL_SIZE = {"main": (480, 470), "help": (720, 680)}
+PANEL_SIZE = {"main": (480, 560), "help": (720, 680), "mastery": (1180, 640)}
+# Mastery table: (header, x offset from the panel's left edge).
+MASTERY_COLUMNS = (("REGION", 40), ("LEVEL", 175), ("PROGRESS", 255), ("SPEED", 470),
+                   ("VETERANS", 570), ("COMPLETED", 700), ("MISSION", 900), ("TRAVEL", 1075))
+TRAVEL_BUTTON = (84, 36)
+TRAVEL_TEXT = {"ready": "TRAVEL", "here": "Here", "busy": "Busy", "locked": "Lvl 3"}
+MASTERY_ROW_GAP = 64
+GOOD = (120, 200, 130)
 BUTTON_SIZE = (312, 64)
 BUTTON_GAP = 84
 ROW_GAP = 36
@@ -75,9 +84,44 @@ class PauseMenu:
         self.rect_instances, self.text_instances = rects, texts
         self.rect_vao, self.rect_vbo = build_rect_objs(ctx, self.rect_program, rects)
         self.text_vao, self.text_vbo = build_tex_objs(ctx, self.text_program, texts)
+        # Mastery page text changes with play, so each cell is a DynamicLabel with its
+        # own quad buffer (rewriting one shared buffer between draws stalls the GPU).
+        self.mastery_rows = []
+        self.headers = [DynamicLabel(ctx, (160, 24), 20, bold=True) for _ in MASTERY_COLUMNS]
+        for label, (text, _) in zip(self.headers, MASTERY_COLUMNS):
+            label.set(text)
+        widths = (130, 70, 200, 90, 120, 190, 170, 84)
+        self.cells = [[DynamicLabel(ctx, (w, 30), 30 if c == 1 else 22, bold=c in (0, 1, 7),
+                                    align="center" if c == 7 else "left")
+                       for c, w in enumerate(widths)] for _ in range(5)]
+        self.quads = {}
+        for label in self.headers + [cell for row in self.cells for cell in row]:
+            instances = get_new_instances(0, 0, 1)[2]
+            self.quads[id(label)] = (instances, *build_tex_objs(ctx, self.text_program, instances))
+
+    def set_mastery(self, rows):
+        """Rows from Missions.mastery_rows(); labels only re-render when text changes."""
+        # Keep the same button selected when the set of travel buttons changes.
+        current = self.items[self.selected] if self.page == "mastery" else None
+        self.mastery_rows = rows
+        if current is not None:
+            items = self.items
+            self.selected = items.index(current) if current in items else len(items) - 1
+        for cells, row in zip(self.cells, rows):
+            done = row["completed"]
+            texts = (row["region"].title(), str(row["level"]), f"{row['mastery']} / {row['need']}",
+                     f"+{row['speed']}%", "Unlocked" if row["veterans"] else "At level 5",
+                     f"Del {done['delivery']}  ·  Spd {done['speed']}  ·  Drag {done['drag']}",
+                     row["mission"] or "—", TRAVEL_TEXT[row["travel"]])
+            for cell, text in zip(cells, texts):
+                cell.set(text)
 
     @property
     def items(self):
+        if self.page == "mastery":
+            # A travel button for each region the player can jump to, then Back.
+            return tuple(f"travel:{row['region']}" for row in self.mastery_rows
+                         if row["travel"] == "ready") + ("back",)
         return PAGES[self.page]
 
     def toggle(self):
@@ -85,23 +129,36 @@ class PauseMenu:
         self.page, self.selected = "main", 0
 
     def _show(self, page):
-        self.page, self.selected = page, 0
+        self.page = page
+        # On the mastery page Back starts selected, so Enter never travels by accident.
+        self.selected = len(self.items) - 1 if page == "mastery" else 0
 
     def _button_centers(self):
         width, height = self.viewport
         if self.page == "help":
             return [(width // 2, height // 2 + 264)]
-        return [(width // 2, height // 2 - 40 + i * BUTTON_GAP) for i in range(len(self.items))]
+        if self.page == "mastery":
+            left = width // 2 - PANEL_SIZE["mastery"][0] // 2
+            top = height // 2 - PANEL_SIZE["mastery"][1] // 2
+            ready = [i for i, row in enumerate(self.mastery_rows) if row["travel"] == "ready"]
+            x = left + MASTERY_COLUMNS[7][1] + TRAVEL_BUTTON[0] // 2
+            return [(x, top + 236 + i * MASTERY_ROW_GAP) for i in ready] + \
+                [(width // 2, height // 2 + 250)]
+        return [(width // 2, height // 2 - 60 + i * BUTTON_GAP) for i in range(len(self.items))]
 
     def _button_records(self):
-        return [_rect(x, y, *BUTTON_SIZE, (0, 0, 0, 0)) for x, y in self._button_centers()]
+        sizes = [TRAVEL_BUTTON if item.startswith("travel:") else BUTTON_SIZE for item in self.items]
+        return [_rect(x, y, *size, (0, 0, 0, 0))
+                for (x, y), size in zip(self._button_centers(), sizes)]
 
     def _choose(self, item):
-        if item == "help":
-            self._show("help")
+        """Pages change here; 'resume', 'exit', and 'travel:<region>' go to the game."""
+        if item in ("help", "mastery"):
+            self._show(item)
         elif item == "back":
+            came_from = self.page
             self._show("main")
-            self.selected = PAGES["main"].index("help")
+            self.selected = PAGES["main"].index(came_from)
         else:
             return item
         return None
@@ -109,7 +166,7 @@ class PauseMenu:
     def handle(self, action, value):
         """Apply one input intent; return 'resume', 'exit', or None."""
         if action == "pause":
-            if self.page == "help":
+            if self.page != "main":
                 return self._choose("back")
             return "resume"
         if action == "menu_up":
@@ -139,10 +196,13 @@ class PauseMenu:
             _rect(cx, top + 6, panel_w, 12, (*ACCENT, 255)),                     # Header stripe.
             _rect(cx, top + 136, 132, 4, (*ACCENT, 255)),                        # Title underline.
         ]
-        texts = [self.labels.record("paused" if self.page == "main" else "controls",
-                                    cx, top + 82, ACCENT)]
+        title = {"main": "paused", "help": "controls", "mastery": "mastery_title"}[self.page]
+        texts = [self.labels.record(title, cx, top + 82, ACCENT)]
+        cells = []
         if self.page == "main":
             texts.append(self.labels.record("hint", cx, cy + panel_h // 2 - 30, MUTED))
+        elif self.page == "mastery":
+            cells = self._mastery_table(rects, cx - panel_w // 2, top, panel_w)
         else:
             key_left, action_left = cx - 320, cx - 50
             for i in range(len(CONTROLS)):
@@ -153,6 +213,12 @@ class PauseMenu:
             texts.append(self.labels.record("goal", cx, top + 190 + len(CONTROLS) * ROW_GAP, MUTED))
         for i, (x, y) in enumerate(self._button_centers()):
             chosen = i == self.selected
+            if self.items[i].startswith("travel:"):
+                # Compact table button; its text is the row's TRAVEL cell (drawn later).
+                tw, th = TRAVEL_BUTTON
+                rects.append(_rect(x, y, tw + 4, th + 4, (*ACCENT, 255) if chosen else BUTTON_EDGE))
+                rects.append(_rect(x, y, tw, th, (*ACCENT, 255) if chosen else BUTTON))
+                continue
             bw, bh = BUTTON_SIZE
             rects.append(_rect(x + 4, y + 5, bw, bh, SHADOW))
             rects.append(_rect(x, y, bw + 4, bh + 4, (*ACCENT, 255) if chosen else BUTTON_EDGE))
@@ -168,3 +234,44 @@ class PauseMenu:
         self.text_vbo.write(self.text_instances[:len(texts)].tobytes(), offset=0)
         self.labels.texture.use(location=0)
         self.text_vao.render(moderngl.TRIANGLES, instances=len(texts))
+        if cells:
+            # Dynamic labels are whole textures, not rows of the label atlas.
+            self.text_program["u_atlas_grid"].value = (1.0, 1.0)
+            for label, record in cells:
+                instances, vao, vbo = self.quads[id(label)]
+                to_gl([record], instances, "tex")
+                vbo.write(instances.tobytes(), offset=0)
+                label.texture.use(location=0)
+                vao.render(moderngl.TRIANGLES, instances=1)
+            self.text_program["u_atlas_grid"].value = self.labels.grid
+
+    def _mastery_table(self, rects, left, top, panel_w):
+        """Add the table's rects; return (label, record) pairs for its text."""
+        cells = []
+        header_y = top + 178
+        for label, (_, x) in zip(self.headers, MASTERY_COLUMNS):
+            cells.append((label, label.record(left + x, header_y, MUTED)))
+        rects.append(_rect(left + panel_w // 2, header_y + 20, panel_w - 60, 2, (*MUTED, 120)))
+        for i, (row, labels) in enumerate(zip(self.mastery_rows, self.cells)):
+            y = top + 236 + i * MASTERY_ROW_GAP
+            if i % 2 == 0:
+                rects.append(_rect(left + panel_w // 2, y, panel_w - 60, MASTERY_ROW_GAP - 6,
+                                   (44, 66, 76, 120)))
+            # Progress bar toward the next level.
+            bar_x = left + MASTERY_COLUMNS[2][1]
+            fraction = min(1.0, row["mastery"] / row["need"])
+            rects.append(_rect(bar_x + 90, y + 13, 180, 8, (20, 30, 36, 255)))
+            if fraction:
+                rects.append(_rect(bar_x + 90 - 90 * (1 - fraction), y + 13, 180 * fraction, 8,
+                                   (*ACCENT, 255)))
+            chosen = self.items[self.selected] == f"travel:{row['region']}"
+            travel = (INK if chosen else CREAM) if row["travel"] == "ready" else MUTED
+            colors = (CREAM, ACCENT, CREAM, GOOD if row["speed"] else MUTED,
+                      GOOD if row["veterans"] else MUTED, CREAM,
+                      ACCENT if row["mission"] else MUTED, travel)
+            offsets = (0, 0, -9, 0, 0, 0, 0, 1)
+            for c, (label, (_, x), color, dy) in enumerate(zip(labels, MASTERY_COLUMNS, colors, offsets)):
+                # The TRAVEL cell is centered on its button; the rest are left-aligned.
+                x = left + x + (TRAVEL_BUTTON[0] // 2 if c == 7 else 0)
+                cells.append((label, label.record(x, y + dy, color)))
+        return cells

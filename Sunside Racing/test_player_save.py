@@ -13,7 +13,7 @@ if str(TOOLKIT_ROOT) not in sys.path:
 
 from car import Car, START_X, START_Y
 from collision_manager import CollisionManager
-from player_save import PlayerSave, default_save_path
+from player_save import SAVE_VERSION, PlayerSave, default_save_path
 from walker import Walker
 from world import SECTOR_SIZE, World
 
@@ -33,7 +33,7 @@ class PlayerSaveTests(unittest.TestCase):
         self.store.save(car)
         saved = json.loads(self.path.read_text())
         self.assertEqual(set(saved), {"version", "mode", "car"})
-        self.assertEqual((saved["version"], saved["mode"]), (2, "drive"))
+        self.assertEqual((saved["version"], saved["mode"]), (SAVE_VERSION, "drive"))
         self.assertEqual(set(saved["car"]), {"x", "y", "heading"})
         self.assertEqual(saved["car"]["heading"], 90)
         resumed = self.store.load(self.collisions)
