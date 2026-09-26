@@ -438,9 +438,14 @@ def props() -> Atlas:
     return a
 
 
-def person(p: Painter, frame: str, jacket: str, trim: str, cap: str | None, hair: str):
-    """A top-down person facing north (up) in a 32 px cell; the engine rotates it."""
-    skin, shoe = "#e2b48c", "#2a3238"
+def person(p: Painter, frame: str, top: str, trim: str, head: str, head_color: str,
+           accent: str | None = None, extra: str | None = None, skin: str = "#e2b48c"):
+    """A top-down person facing north (up) in a 32 px cell; the engine rotates it.
+
+    head: cap, hair, wide (straw hat), beanie, wrap (head scarf), or safari.
+    extra: overalls, hood (fur-trimmed parka), robe, or backpack.
+    """
+    shoe = "#2a3238"
     p.ellipse(17, 18, 7, 5, "#24414a")                    # Ground shadow.
     if frame == "walk_a":                                 # Left foot forward, right back.
         p.rect(12, 7, 15, 11, shoe)
@@ -449,30 +454,145 @@ def person(p: Painter, frame: str, jacket: str, trim: str, cap: str | None, hair
         p.rect(17, 7, 20, 11, shoe)
         p.rect(12, 21, 15, 25, shoe)
     swing = {"walk_a": 2, "walk_b": -2}.get(frame, 0)     # Arms swing opposite the feet.
-    p.rect(8, 15 - swing, 11, 20 - swing, jacket)
-    p.rect(21, 15 + swing, 24, 20 + swing, jacket)
+    p.rect(8, 15 - swing, 11, 20 - swing, top)
+    p.rect(21, 15 + swing, 24, 20 + swing, top)
     p.rect(8, 19 - swing, 11, 21 - swing, skin)
     p.rect(21, 19 + swing, 24, 21 + swing, skin)
-    p.ellipse(16, 18, 7, 3, jacket)                       # Shoulders and back.
-    p.rect(15, 19, 17, 22, trim)                          # Jacket stripe below the head.
-    p.ellipse(16, 15, 4, 4, cap or hair)                  # Head seen from above.
-    if cap:
-        p.rect(13, 10, 19, 12, "#9c2f2b")                 # Dark brim shows the facing.
+    if extra == "robe":
+        p.ellipse(16, 19, 8, 4, top)                      # Loose robe past the shoulders.
+        p.rect(10, 20, 23, 24, top)
+    p.ellipse(16, 18, 7, 3, top)                          # Shoulders and back.
+    if extra == "backpack":
+        p.rect(12, 18, 21, 25, trim)
+        p.rect(13, 22, 20, 23, "#3d2e20")
+    elif extra == "overalls":
+        p.rect(12, 16, 14, 21, trim)
+        p.rect(18, 16, 20, 21, trim)
+    elif extra != "robe":
+        p.rect(15, 19, 17, 22, trim)                      # Stripe down the back.
+    if extra == "hood":
+        p.ellipse(16, 17, 6, 4, trim)                     # Fur-trimmed hood behind the head.
+    if head == "wrap":
+        p.rect(15, 18, 18, 24, head_color)                # Scarf tail hangs down the back.
+    if head == "wide":
+        p.ellipse(16, 15, 7, 6, head_color)
+        p.ellipse(16, 15, 3, 3, accent)
+        return
+    if head == "safari":
+        p.ellipse(16, 15, 6, 5, head_color)
+        p.rect(11, 15, 22, 16, accent)
+        p.ellipse(16, 15, 3, 3, head_color)
+        return
+    p.ellipse(16, 15, 5 if head == "wrap" else 4, 4, head_color)  # Head seen from above.
+    if head == "cap":
+        p.rect(13, 10, 19, 12, accent)                    # Dark brim shows the facing.
+    elif head == "beanie":
+        p.rect(15, 14, 17, 16, accent)                    # Pom-pom.
+    elif head == "wrap":
+        p.rect(12, 14, 21, 15, accent)                    # Band.
     else:
         p.rect(14, 11, 18, 12, skin)                      # Forehead peeking out.
 
 
+# name, top, trim, head, head color, accent, extra, skin
+PEOPLE = (
+    ("player", "#d9453f", "#fff1c0", "cap", "#f4ead0", "#9c2f2b", None, "#e2b48c"),
+    ("city_a", "#4f7fc4", "#dfe8f0", "hair", "#3a2a22", None, None, "#e2b48c"),
+    ("city_b", "#5f9b76", "#e8e2c8", "hair", "#1f1f24", None, None, "#8d5a3b"),
+    ("city_c", "#e2b84e", "#fff4d6", "hair", "#c9a15a", None, None, "#f0c9a6"),
+    ("city_d", "#8a6bb8", "#e7dcf2", "cap", "#2f3f5f", "#1d2a40", None, "#c68a5e"),
+    ("city_e", "#d9d7cb", "#9aa6ad", "hair", "#b5613a", None, None, "#f0c9a6"),
+    ("city_f", "#3f9a9a", "#d6efe9", "cap", "#e6e1d2", "#2d6d6d", None, "#8d5a3b"),
+    ("city_g", "#e08a4a", "#fff0dc", "hair", "#1f1f24", None, None, "#c68a5e"),
+    ("city_h", "#7d8a90", "#cfd6d8", "beanie", "#a8443c", "#f0e6d0", None, "#e2b48c"),
+    ("farmer_a", "#3f5f8f", "#e8d49a", "wide", "#d9b75a", "#a8843a", "overalls", "#e2b48c"),
+    ("farmer_b", "#b5503f", "#e8d49a", "wide", "#e0c070", "#9c7a36", None, "#c68a5e"),
+    ("snow_a", "#e07b3a", "#efe6d4", "beanie", "#3b5f8a", "#f4f0e6", "hood", "#f0c9a6"),
+    ("snow_b", "#34507a", "#efe6d4", "beanie", "#c9453c", "#f4f0e6", "hood", "#c68a5e"),
+    ("nomad_a", "#c9a46a", "#e8dcc0", "wrap", "#ece0c4", "#b0452f", "robe", "#c68a5e"),
+    ("nomad_b", "#3f4f8a", "#d9cfb4", "wrap", "#e2d5b5", "#c9a24a", "robe", "#8d5a3b"),
+    ("explorer_a", "#a89a64", "#6b4f35", "safari", "#c8b47a", "#6b4f35", "backpack", "#e2b48c"),
+    ("explorer_b", "#6f7a45", "#6b4f35", "safari", "#b9a56a", "#4d3a28", "backpack", "#8d5a3b"),
+)
+PERSON_FRAMES = ("idle", "walk_a", "walk_b")
+
+
 def people() -> Atlas:
-    a = Atlas("people-atlas", 32, 4, 1)
-    for col, frame in enumerate(("idle", "walk_a", "walk_b")):
-        person(a.tile(f"player_{frame}", col, 0), frame, "#d9453f", "#fff1c0", "#f4ead0", "#3a2a22")
+    """Every kind gets idle and two walk frames; four kinds per 12-cell row."""
+    per_row = 4
+    rows = -(-len(PEOPLE) // per_row)
+    a = Atlas("people-atlas", 32, per_row * len(PERSON_FRAMES), rows)
+    for i, (name, top, trim, head, head_color, accent, extra, skin) in enumerate(PEOPLE):
+        for f, frame in enumerate(PERSON_FRAMES):
+            person(a.tile(f"{name}_{frame}", (i % per_row) * len(PERSON_FRAMES) + f, i // per_row),
+                   frame, top, trim, head, head_color, accent, extra, skin)
+    return a
+
+
+def camp_prop(p: Painter, name: str):
+    """Encampment props, 64 px, top-down; tent doors face south (down)."""
+    if name.startswith("tent"):
+        canvas, shade = {"tent_tan": ("#d8c08a", "#b39a64"),
+                         "tent_green": ("#6f8f4f", "#56733c")}[name]
+        p.rect(12, 14, 56, 56, "#24414a")                 # Shadow.
+        for x, y in ((8, 10), (54, 10), (8, 52), (54, 52)):
+            p.rect(x, y, x + 3, y + 3, "#5a4a3a")         # Pegs.
+        p.rect(10, 12, 54, 52, canvas)
+        p.rect(10, 12, 31, 52, shade)                     # Shaded west slope.
+        p.rect(31, 12, 33, 52, "#4f4436")                 # Ridge pole.
+        p.rect(25, 40, 39, 52, "#3a3027")                 # Open door flap.
+        p.rect(27, 42, 37, 52, "#221c17")
+    elif name == "campfire":
+        p.ellipse(33, 35, 15, 12, "#24414a")
+        p.ellipse(32, 33, 14, 12, "#8a8f8f")              # Stone ring.
+        p.ellipse(32, 33, 10, 8, "#3a2e25")
+        p.rect(20, 31, 44, 35, "#6b4a30")                 # Crossed logs.
+        p.rect(30, 22, 34, 44, "#7a5638")
+        p.ellipse(32, 31, 6, 7, "#e8783a")                # Flames.
+        p.ellipse(32, 32, 3, 4, "#f6d05a")
+    elif name == "crate_stack":
+        for x, y in ((12, 22), (32, 26), (20, 8)):
+            p.rect(x + 3, y + 3, x + 21, y + 21, "#24414a")
+            p.rect(x, y, x + 18, y + 18, "#a47a4a")
+            p.rect(x, y + 8, x + 18, y + 10, "#7a5638")
+            p.rect(x + 8, y, x + 10, y + 18, "#7a5638")
+    elif name == "barrel_pair":
+        for cx in (22, 42):
+            p.ellipse(cx + 2, 36, 10, 10, "#24414a")
+            p.ellipse(cx, 33, 10, 10, "#6b4a30")
+            p.ellipse(cx, 33, 7, 7, "#8a6440")
+            p.rect(cx - 10, 32, cx + 11, 34, "#3a3a3a")   # Iron hoop.
+    elif name.startswith("bedroll"):
+        cloth = {"bedroll_red": "#b5503f", "bedroll_blue": "#3f5f8f"}[name]
+        p.rect(22, 12, 44, 54, "#24414a")
+        p.rect(20, 10, 42, 52, cloth)
+        p.rect(20, 10, 42, 18, "#efe6d4")                 # Pillow end.
+        p.rect(20, 30, 42, 32, "#2f2a26")                 # Strap.
+    elif name == "log_bench":
+        p.rect(10, 30, 58, 42, "#24414a")
+        p.rect(8, 26, 56, 38, "#7a5638")
+        p.rect(8, 26, 56, 28, "#9a7048")
+        p.ellipse(10, 32, 3, 6, "#c9a070")                # Cut rings at the ends.
+        p.ellipse(54, 32, 3, 6, "#c9a070")
+    else:
+        raise ValueError(name)
+
+
+CAMP_PROPS = ("tent_tan", "tent_green", "campfire", "crate_stack",
+              "barrel_pair", "bedroll_red", "bedroll_blue", "log_bench")
+
+
+def camp() -> Atlas:
+    a = Atlas("camp-atlas", 64, 4, 2)
+    for i, name in enumerate(CAMP_PROPS):
+        camp_prop(a.tile(name, i % 4, i // 4), name)
     return a
 
 
 def main():
     BITMAP.mkdir(exist_ok=True)
     ASSETS.mkdir(exist_ok=True)
-    atlases = [terrain(), roads(), vehicles(), structures(), props(), people()]
+    atlases = [terrain(), roads(), vehicles(), structures(), props(), people(), camp()]
     manifest = {"format": 1, "art_style": "top-down pixel art", "atlases": {}}
     for atlas in atlases:
         (BITMAP / f"{atlas.name}.json").write_text(json.dumps(atlas.spec(), indent=2) + "\n")

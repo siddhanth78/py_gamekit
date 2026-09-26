@@ -21,6 +21,8 @@ class InputHandler:
                     intents.append(("reset", None))
                 elif event.key == pygame.K_e:
                     intents.append(("interact", None))
+                elif event.key == pygame.K_q:
+                    intents.append(("call_car", None))
                 elif event.key in (pygame.K_UP, pygame.K_w):
                     intents.append(("menu_up", None))
                 elif event.key in (pygame.K_DOWN, pygame.K_s):

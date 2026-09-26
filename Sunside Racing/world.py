@@ -50,6 +50,16 @@ PARKED_CARS = (
     "traffic_yellow", "traffic_taxi", "traffic_van", "traffic_pickup", "traffic_suv",
     "traffic_wagon", "traffic_compact",
 )
+# Encampments: offsets from the camp center (the sector's middle).
+CAMPS_PER_REGION = 5
+CAMP_TENTS = ((-88, -56), (84, -60), (6, 92))
+CAMP_SEATS = ((-14, -40), (14, -40))   # On the log bench, facing the fire.
+CAMP_RING = 58                         # Radius of the walkable ring around the fire.
+CAMP_STYLE = {  # region -> (tent sprite, trampled ground tile)
+    "desert": ("tent_tan", "dirt_gravel"),
+    "jungle": ("tent_green", "jungle_mud"),
+}
+
 # Region -> (prop choices, scatter attempts per sector).
 SCATTER = {
     "jungle": (("jungle_tree_a", "jungle_tree_b", "jungle_tree_c", "jungle_tree_d",
@@ -107,11 +117,38 @@ class World:
         _route(self.snow_roads, list(SNOW_ROUTE))
         for route in DIRT_ROUTES:
             _route(self.dirt_roads, list(route))
+        self.camps = self._choose_camps()
         # Ferry docks face each other across the channel on the island's row.
         self.mainland_dock = (max(sx for sx in range(SECTORS)
                                   if self._landmass(sx, ISLAND_ROW) == "mainland"), ISLAND_ROW)
         self.island_dock = (min(sx for sx in range(SECTORS)
                                 if self._landmass(sx, ISLAND_ROW) == "island"), ISLAND_ROW)
+
+    def _choose_camps(self) -> dict[tuple[int, int], str]:
+        """Spread a few encampments through the desert and jungle, clear of centers."""
+        rng = random.Random(self.seed * 7 + 17)
+        camps: dict[tuple[int, int], str] = {}
+        for region in CAMP_STYLE:
+            candidates = [(sx, sy) for sy in range(SECTORS) for sx in range(SECTORS)
+                          if self.region(sx, sy) == region
+                          and all(max(abs(sx - cx), abs(sy - cy)) >= 2 for cx, cy in CENTERS)]
+            rng.shuffle(candidates)
+            chosen = []
+            for sector in candidates:
+                if all(max(abs(sector[0] - x), abs(sector[1] - y)) >= 3 for x, y in chosen):
+                    chosen.append(sector)
+                if len(chosen) == CAMPS_PER_REGION:
+                    break
+            camps.update({sector: region for sector in chosen})
+        return camps
+
+    def camp_center(self, sx: int, sy: int) -> tuple[float, float]:
+        return (sx + 0.5) * SECTOR_SIZE, (sy + 0.5) * SECTOR_SIZE
+
+    @staticmethod
+    def tent_facing(dx: float, dy: float) -> float:
+        """Rotation that turns a tent's south-facing door toward the fire."""
+        return math.degrees(math.atan2(-dx, -dy))
 
     @staticmethod
     def _landmass(sx: int, sy: int) -> str:
@@ -275,6 +312,8 @@ class World:
                                   ox + (SECTOR_SIZE - 44 if east else 44), oy + SECTOR_SIZE / 2,
                                   106, 106, 90.0 if east else -90.0, 70, 70))
             occupied |= {(lx, ly) for lx in ((6, 7) if east else (0, 1)) for ly in (3, 4)}
+        elif (sx, sy) in self.camps:
+            self._camp(region, grid, ground, occupied, scenery, prop)
         elif region == "sea":
             coastal = any(self._landmass(sx + dx, sy + dy) != "sea"
                           for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
@@ -382,6 +421,28 @@ class World:
         for dx in (-edge + 12, edge - 12):
             for dy in (-edge + 12, edge - 12):
                 prop("cone", x + dx, y + dy, 40)
+
+    def _camp(self, region, grid, ground, occupied, scenery, prop):
+        """Tents facing a campfire, supplies, and a bench on trampled ground."""
+        tent, floor = CAMP_STYLE[region]
+        for lx in range(2, 6):
+            for ly in range(2, 6):
+                ground[(lx, ly)] = floor
+                occupied.add((lx, ly))
+        cx, cy = grid(4, 4)
+        for dx, dy in CAMP_TENTS:
+            scenery.append(Sprite("camp-atlas", tent, cx + dx, cy + dy, 72, 72,
+                                  self.tent_facing(dx, dy), 54, 50))
+        for name, dx, dy, size, rotation, solid in (
+            ("campfire", 0, 0, 56, 0.0, 20),
+            ("crate_stack", 92, 38, 60, 0.0, 40),
+            ("barrel_pair", -96, 40, 56, 0.0, 34),
+            ("bedroll_red", -44, 30, 44, 90.0, 0),
+            ("bedroll_blue", 44, 34, 44, -90.0, 0),
+            ("log_bench", 0, -44, 56, 0.0, 0),
+        ):
+            scenery.append(Sprite("camp-atlas", name, cx + dx, cy + dy, size, size, rotation,
+                                  solid, solid))
 
     def _city_blocks(self, rng, grid, ground, scenery, prop, skip_lot):
         for lot in ((2, 2), (6, 2), (2, 6), (6, 6)):

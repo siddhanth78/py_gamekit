@@ -17,8 +17,10 @@
       "main.py",
       "parking.py",
       "pause_menu.py",
+      "pedestrians.py",
       "player_save.py",
       "test_parking.py",
+      "test_pedestrians.py",
       "test_player_save.py",
       "test_respawn_and_menu.py",
       "test_traffic.py",
@@ -32,6 +34,7 @@
     ],
     "assets": [
       "assets/atlas-manifest.json",
+      "assets/camp-atlas.png",
       "assets/people-atlas.png",
       "assets/prop-atlas.png",
       "assets/road-atlas.png",
@@ -40,6 +43,7 @@
       "assets/vehicle-atlas.png"
     ],
     "bitmaps": [
+      "bitmap/camp-atlas.json",
       "bitmap/people-atlas.json",
       "bitmap/prop-atlas.json",
       "bitmap/road-atlas.json",

@@ -21,17 +21,18 @@ from gl_utils import (
 )
 
 
-# People draw above props but below vehicles.
+# Camp gear sits with props; people draw above both but below vehicles.
 DRAW_ORDER = (
-    "terrain-atlas", "road-atlas", "structure-atlas", "prop-atlas", "people-atlas",
-    "vehicle-atlas",
+    "terrain-atlas", "road-atlas", "structure-atlas", "prop-atlas", "camp-atlas",
+    "people-atlas", "vehicle-atlas",
 )
 CAPACITY = {
     "terrain-atlas": 8192,
     "road-atlas": 4096,
     "structure-atlas": 1024,
     "prop-atlas": 1024,
-    "people-atlas": 256,
+    "camp-atlas": 256,
+    "people-atlas": 512,
     "vehicle-atlas": 512,
 }
 

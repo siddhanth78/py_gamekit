@@ -18,10 +18,11 @@ from game_state import GameState
 from hud import CenterArrow, Hud, compass
 from input_handler import InputHandler
 from parking import Parking
+from pedestrians import Pedestrians
 from pause_menu import PauseMenu
 from player_save import PlayerSave
 from traffic import Traffic
-from walker import Walker, exit_spot
+from walker import CALL_PROMPT_DISTANCE, Walker, call_spot, exit_spot
 from world import WORLD_SIZE, World
 from world_save import WorldStore
 
@@ -75,6 +76,8 @@ def main():
     collisions.traffic = traffic
     parking = Parking(world, traffic, world.seed)
     collisions.parking = parking
+    pedestrians = Pedestrians(world, world.seed)
+    collisions.pedestrians = pedestrians
     arrow = CenterArrow(ctx, TOOLKIT_ROOT, state.viewport)
     menu = PauseMenu(ctx, TOOLKIT_ROOT, state.viewport)
     hud = Hud(ctx, TOOLKIT_ROOT, state.viewport, TOP_SPEED)
@@ -120,13 +123,20 @@ def main():
                     elif walker.can_enter(car):
                         walker = None
                         collisions.fixed = []
+                elif action == "call_car" and walker:
+                    spot = call_spot(walker, car, collisions)
+                    if spot:
+                        (car.x, car.y), car.speed = spot, 0.0
+                        state.set_player_pose(player_id, car.x, car.y, car.heading)
+                        collisions.fixed = [car.obstacle()]
             if not running:
                 break
             player = walker or car
             if not menu.open:
                 blockers = [car.collision_record()] if walker else []
                 parking.update(dt, player.x, player.y)
-                traffic.update(dt, player.collision_record(), blockers)
+                pedestrians.update(dt, player.collision_record())
+                traffic.update(dt, player.collision_record(), blockers + pedestrians.road_blockers())
                 if walker:
                     walker.update(dt, *inputs.walking(), collisions)
                     state.set_player_pose(walker_id, walker.x, walker.y, walker.heading)
@@ -146,11 +156,16 @@ def main():
             visible = [sprite for sprite in world.visible_sprites(camera_x, camera_y, view_w, view_h)
                        if not parking.is_away(sprite)]
             visible += traffic.sprites(camera_x, camera_y, view_w, view_h)
+            visible += pedestrians.sprites(camera_x, camera_y, view_w, view_h)
             center = world.center_for(player.x, player.y)
             ctx.clear(0.10, 0.25, 0.36, 1.0)
             entities = [player_id] + ([walker_id] if walker else [])
             state.render(visible, camera_x, camera_y, entities, zoom)
-            prompt = "E   Get in" if walker and walker.can_enter(car) else ""
+            prompt = ""
+            if walker and walker.can_enter(car):
+                prompt = "E   Get in"
+            elif walker and math.dist((walker.x, walker.y), (car.x, car.y)) > CALL_PROMPT_DISTANCE:
+                prompt = "Q   Call car"
             hud.render(car.speed, world.region_at(player.x, player.y), center_guide(player, center),
                        prompt, show_speed=walker is None)
             if center and not menu.open:

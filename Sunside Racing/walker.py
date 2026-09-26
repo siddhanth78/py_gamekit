@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 
 from collision_manager import nearest_clear_spot
+from world import Sprite
 
 
 WALK_SPEED = 60.0   # px/s; the car tops out at 170.
@@ -14,6 +15,9 @@ BODY = 12           # Square collision box, px.
 STRIDE = 12         # px walked per animation frame.
 ENTER_RANGE = 44    # Max distance from the car's center to get in.
 EXIT_GAP = 30       # Door-side distance from the car's center when getting out.
+CALL_RANGE = 320    # Farthest the called car may appear from the walker, px.
+CALL_MIN_DISTANCE = 80  # Closer than this, the car is already right here.
+CALL_PROMPT_DISTANCE = 320  # Show "Q  Call car" once the car is this far away.
 
 
 @dataclass
@@ -61,6 +65,11 @@ class Walker:
         self.x, self.y = spot
         return True
 
+    def obstacle(self, padding: float = 0.0):
+        """The walker as a solid sprite, e.g. to keep a called car from landing on them."""
+        return Sprite("people-atlas", "player_idle", self.x, self.y, 32, 32, 0.0,
+                      BODY + padding, BODY + padding)
+
     def can_enter(self, car) -> bool:
         return math.dist((self.x, self.y), (car.x, car.y)) <= ENTER_RANGE
 
@@ -77,3 +86,25 @@ def exit_spot(car, collisions):
         if collisions.can_move(probe.collision_record(x, y)):
             return x, y
     return None
+
+
+def call_spot(walker, car, collisions):
+    """Closest clear spot for the car beside the walker, facing the way they face.
+
+    Returns None when the car is already close or no spot within CALL_RANGE is free.
+    """
+    if math.dist((walker.x, walker.y), (car.x, car.y)) < CALL_MIN_DISTANCE:
+        return None
+    saved_fixed, saved_heading = collisions.fixed, car.heading
+    car.heading = walker.heading
+    # Only the walker blocks the search; the car's old parking spot no longer matters.
+    collisions.fixed = [walker.obstacle(padding=16)]
+    spot = None
+    try:
+        spot = nearest_clear_spot(collisions, car.collision_record, walker.x, walker.y, 12,
+                                  CALL_RANGE)
+    finally:
+        collisions.fixed = saved_fixed
+        if spot is None:
+            car.heading = saved_heading
+    return spot

@@ -27,6 +27,7 @@ class CollisionManager:
         self.traffic = None  # Attached after the player save is validated.
         self.parking = None
         self.fixed = []  # Extra solid sprites, e.g. the player's parked car while on foot.
+        self.pedestrians = None
         self.current_collisions = {}
         self.previous_collisions = {}
         self.on_collision_enter = {}
@@ -44,6 +45,8 @@ class CollisionManager:
             obstacles = [item for item in obstacles if not self.parking.is_away(item)]
         if self.traffic is not None:
             obstacles += self.traffic.nearby_obstacles(player_rect[0], player_rect[1])
+        if self.pedestrians is not None:
+            obstacles += self.pedestrians.nearby_obstacles(player_rect[0], player_rect[1])
         obstacles += [item for item in self.fixed
                       if abs(item.x - player_rect[0]) < 145 and abs(item.y - player_rect[1]) < 145]
         hits = check_collision(player_rect, [item.obstacle_record() for item in obstacles], "rect")

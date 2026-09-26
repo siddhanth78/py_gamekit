@@ -17,6 +17,7 @@ CONTROLS = (
     ("SPACE", "Handbrake"),
     ("SHIFT", "Run while on foot"),
     ("E", "Get out of or into the car"),
+    ("Q", "Call your car (on foot)"),
     ("R", "Unstick yourself nearby"),
     ("ESC", "Pause menu"),
 )
@@ -44,10 +45,10 @@ BUTTON_EDGE = (78, 104, 112, 255)
 KEY_CAP = (44, 66, 76, 255)
 SHADOW = (8, 14, 18, 150)
 
-PANEL_SIZE = {"main": (480, 470), "help": (720, 640)}
+PANEL_SIZE = {"main": (480, 470), "help": (720, 680)}
 BUTTON_SIZE = (312, 64)
 BUTTON_GAP = 84
-ROW_GAP = 40
+ROW_GAP = 36
 
 
 def _rect(x, y, width, height, rgba, thickness=0.0):
@@ -89,7 +90,7 @@ class PauseMenu:
     def _button_centers(self):
         width, height = self.viewport
         if self.page == "help":
-            return [(width // 2, height // 2 + 262)]
+            return [(width // 2, height // 2 + 264)]
         return [(width // 2, height // 2 - 40 + i * BUTTON_GAP) for i in range(len(self.items))]
 
     def _button_records(self):
@@ -146,7 +147,7 @@ class PauseMenu:
             key_left, action_left = cx - 320, cx - 50
             for i in range(len(CONTROLS)):
                 y = top + 190 + i * ROW_GAP
-                rects.append(_rect(key_left + 118, y, 244, 34, KEY_CAP))
+                rects.append(_rect(key_left + 118, y, 244, 30, KEY_CAP))
                 texts.append(self.labels.record(f"key{i}", key_left + 8, y, ACCENT, align="left"))
                 texts.append(self.labels.record(f"act{i}", action_left, y, CREAM, align="left"))
             texts.append(self.labels.record("goal", cx, top + 190 + len(CONTROLS) * ROW_GAP, MUTED))
