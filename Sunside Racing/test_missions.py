@@ -40,6 +40,7 @@ class ProgressionTests(unittest.TestCase):
         progress = Progress({"desert": {"level": 5, "mastery": 3}})
         self.assertAlmostEqual(progress.speed_scale("desert"), 1.16)
         self.assertEqual(progress.speed_scale("beach"), 1.0)
+        self.assertEqual((progress.rating("desert"), progress.rating("city")), (140, 100))
         self.assertTrue(progress.harder_unlocked("desert"))
         self.assertFalse(progress.harder_unlocked("city"))
 
@@ -74,6 +75,66 @@ class GiverAndOfferTests(unittest.TestCase):
         again = Missions(self.world, self.world.seed, json.loads(json.dumps(missions.to_dict())))
         self.assertEqual({k: v.to_dict() for k, v in again.offers.items()},
                          {k: v.to_dict() for k, v in missions.offers.items()})
+
+    def test_drag_rivals_are_capped_at_1_15_including_saved_offers(self):
+        missions = Missions(self.world, self.world.seed)
+        for giver in (g for g in missions.givers if g.type == "drag"):
+            for _ in range(40):
+                missions.offers.pop(giver.id, None)
+                self.assertLessEqual(missions.offer_for(giver).scale, 1.15)
+        saved = {"offers": {"city-drag": {"type": "drag", "scale": 1.227, "target": None,
+                                          "track": {"kind": "straight", "theme": "city"}, "seed": 1},
+                            "city-speed": {"type": "speed", "scale": 1.24, "target": [100.0, 100.0],
+                                           "track": None, "seed": 2}}}
+        loaded = Missions(self.world, self.world.seed, saved)
+        self.assertEqual(loaded.offers["city-drag"].scale, 1.15)
+        self.assertEqual(loaded.offers["city-speed"].scale, 1.24)  # Other missions unchanged.
+
+    def test_drag_rivals_keep_their_offer_time_rating_after_leveling(self):
+        missions = Missions(self.world, self.world.seed,
+                            {"progress": {"city": {"level": 2, "mastery": 0}}})
+        giver = missions.by_id["city-drag"]
+        missions.offers.pop(giver.id, None)
+        offer = missions.offer_for(giver)
+        offer.scale = 1.15
+        self.assertEqual(offer.levels["city"], 2)
+        self.assertAlmostEqual(missions.rival_rating(offer), 126.5)        # 1.15 x 110.
+        self.assertAlmostEqual(missions.rival_multiplier(offer), 1.106)    # +4% per 10 rating.
+        self.assertEqual(missions.preview(offer)["difficulty"], "Hard")
+        self.assertEqual(missions.preview(offer)["rules"], "Rival (127) VS You (110)")
+        missions.progress.add("city", 20)  # Level 3: 126.5 / 120 = 1.054.
+        self.assertAlmostEqual(missions.rival_rating(offer), 126.5)        # Rival unchanged.
+        self.assertEqual(missions.preview(offer)["difficulty"], "Hard")
+        self.assertEqual(missions.preview(offer)["rules"], "Rival (127) VS You (120)")
+        missions.progress.add("city", 30)  # Level 4: 126.5 / 130 = 0.973.
+        self.assertEqual(missions.preview(offer)["difficulty"], "Medium")
+        restored = Missions(self.world, self.world.seed, json.loads(json.dumps(missions.to_dict())))
+        self.assertAlmostEqual(restored.rival_rating(restored.offers[giver.id]), 126.5)
+
+    def test_time_trial_clocks_stay_at_the_offer_time_car_after_leveling(self):
+        missions = Missions(self.world, self.world.seed)
+        giver = missions.by_id["city-speed"]
+        offer = Offer(giver.id, "speed", 1.0, (giver.x + 3000, giver.y), levels={"city": 1})
+        start = (giver.x, giver.y)
+        before = missions.speed_limit(offer, start)
+        missions.progress.add("city", 10 + 20 + 30)  # Level 4.
+        self.assertAlmostEqual(missions.speed_limit(offer, start), before)
+        self.assertAlmostEqual(missions.effective_scale(offer), 1.0 / 1.12)
+        self.assertEqual(missions.label(offer), "Medium")
+        missions.progress.add("city", 40 + 50 + 60 + 70)  # Level 8: 1 / 1.28 = 0.78.
+        self.assertEqual(missions.label(offer), "Easy")
+        delivery = Offer(giver.id, "delivery", 1.0, (giver.x + 3000, giver.y), levels={"city": 1})
+        self.assertEqual(missions.label(delivery), "Medium")  # Deliveries aren't speed-based.
+
+    def test_offers_saved_without_levels_adopt_the_current_ones(self):
+        saved = {"progress": {"city": {"level": 2, "mastery": 7}},
+                 "offers": {"city-drag": {"type": "drag", "scale": 1.15, "target": None,
+                                          "track": {"kind": "straight", "theme": "city"}, "seed": 1}}}
+        missions = Missions(self.world, self.world.seed, saved)
+        self.assertEqual(missions.offers["city-drag"].levels["city"], 2)
+        self.assertAlmostEqual(missions.rival_rating(missions.offers["city-drag"]), 126.5)
+        with self.assertRaises(ValueError):
+            Offer.from_dict("city-drag", {**saved["offers"]["city-drag"], "levels": {"city": 0}})
 
     def test_bad_saved_offers_are_dropped(self):
         data = {"offers": {"city-drag": {"type": "drag", "scale": 9}, "nobody": {"type": "speed"}}}

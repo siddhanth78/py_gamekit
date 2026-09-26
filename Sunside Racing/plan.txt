@@ -763,6 +763,52 @@ Mission system revamp: no queued missions (2026-09-26)
   real-key game flows (quit game mid-delivery and mid-race, autosave
   mid-mission).
 
+Drag rival cap (2026-09-26)
+- User feedback: drag rivals above 1.2 were too hard. missions.MAX_DRAG_SCALE
+  = 1.15. New drag offers roll 0.5-1.15 (veterans 0.8-1.15); delivery and
+  time trial keep MAX_SCALE 1.25. Saved drag offers above 1.15 are lowered
+  to 1.15 on load (the player's pending city drag offer went 1.227 ->
+  1.15). Test added.
+
+Offer-time difficulty for drag and time trial (2026-09-26)
+- Each offer records the player's region levels when it is made
+  (Offer.levels, saved in player.json). Offers saved without them adopt the
+  current levels on load; hand-built offers get them on accept.
+- Drag: the rival is offer.scale x the player's car at offer time
+  (Missions.rival_multiplier), e.g. 1.15 at level 2 = 1.196x stock. It
+  never changes afterwards, so leveling up lets the player catch it. Game
+  passes this to DragRace; circuits calibrate to it, straights use it.
+  (Superseded by the rating system below.)
+- Time trial: the clock uses the offer-time level of every region on the
+  route, so it never shrinks after leveling.
+- Difficulty labels use effective_scale = scale x offer-time multiplier /
+  current multiplier (deliveries keep their raw scale), so a Hard offer can
+  become Medium or Easy as the player levels. The label is fixed when the
+  mission is accepted.
+- The player's pending city drag offer (made at city level 2, player now
+  level 3) was given levels city=2: rival 1.196x, shown as Hard (1.107).
+- Tests: rival frozen across level-ups and saves; labels ease; time-trial
+  clock frozen; old offers adopt the current levels; a real-key flow
+  accepts a level-2 offer at level 3.
+
+Car ratings (2026-09-26)
+- A car's rating is 100 at level 1 and +10 per level (progression.rating).
+  Rating drives speed: every 10 points is +4% top speed over stock
+  (rating_speed), so the player's own speed is unchanged.
+- Drag rivals are rated offer.scale x the player's rating when offered,
+  frozen: 1.15 at level 2 = 126.5 (1.106x stock), beaten from level 4
+  (130). This replaced "scale x offer-time speed" (1.196x stock) and makes
+  drag rivals easier. Drag difficulty labels compare ratings (rival /
+  yours now). Time trials still compare top speeds.
+- Center race rivals are rated at their REQUIRED_LEVELS level (race 1: 100
+  ... race 10: 290); their calibration is unchanged.
+- Display: drag offers "Rival (127) VS You (120)"; center offers
+  "<Rival> (140) VS You (120)", with laps and surface moved to the last
+  line; the Mastery page's SPEED column is now RATING; level-up results
+  show the new rating. Ratings display rounded, halves up.
+- Tests: rating values, frozen drag rating across level-ups and saves,
+  labels, and real-key checks of both panels.
+
 Technical basis
 - Keep game-specific code in this marked project. Adapt game_state.py,
   input_handler.py, and collision_manager.py and compose them from main.py.

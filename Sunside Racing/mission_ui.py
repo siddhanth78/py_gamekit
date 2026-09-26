@@ -8,6 +8,7 @@ from gl_utils import (
     build_rect_objs, build_tex_objs, check_mouse_collisions, get_new_instances, load_program,
     to_gl,
 )
+from progression import rating
 from ui_text import DynamicLabel
 
 
@@ -72,7 +73,7 @@ class MissionPanel:
         level, (have, need) = result["level"], result["progress"]
         if result["levels"]:
             chip = "Level up"
-            lines.append(f"{result['region'].title()} level {level}!  +4% top speed there"
+            lines.append(f"{result['region'].title()} level {level}!  Rating {rating(level)}"
                          + ("  ·  veteran givers unlocked" if 5 in result["levels"] else ""))
         else:
             lines.append(f"{result['region'].title()} level {level}  ·  {have}/{need} mastery to next")

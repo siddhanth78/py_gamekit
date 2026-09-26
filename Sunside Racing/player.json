@@ -2,18 +2,18 @@
   "version": 3,
   "mode": "walk",
   "car": {
-    "x": 12780.061475842818,
-    "y": 15449.595971334866,
-    "heading": 0.0
+    "x": 12769.586063533565,
+    "y": 15465.496042913202,
+    "heading": 6.458215485206852
   },
   "missions": {
     "progress": {
       "city": {
-        "level": 2,
-        "mastery": 13,
+        "level": 3,
+        "mastery": 4,
         "completed": {
-          "delivery": 2,
-          "speed": 5,
+          "delivery": 4,
+          "speed": 7,
           "drag": 3
         },
         "races": 4
@@ -59,11 +59,11 @@
         "races": 0
       }
     },
-    "counter": 13,
+    "counter": 17,
     "offers": {
       "city-drag": {
         "type": "drag",
-        "scale": 1.227,
+        "scale": 1.15,
         "target": null,
         "track": {
           "kind": "circuit",
@@ -71,23 +71,37 @@
           "seed": 47328636,
           "size": 4
         },
-        "seed": 47328636
+        "seed": 47328636,
+        "levels": {
+          "city": 2,
+          "jungle": 1,
+          "desert": 1,
+          "snow": 1,
+          "rural": 1
+        }
       },
-      "city-delivery": {
-        "type": "delivery",
-        "scale": 0.55,
+      "city-speed": {
+        "type": "speed",
+        "scale": 0.518,
         "target": [
-          17225.506785691432,
-          5635.987712620077
+          14533.692501507885,
+          17767.589728623345
         ],
         "track": null,
-        "seed": 652773184
+        "seed": 528096777,
+        "levels": {
+          "city": 3,
+          "jungle": 1,
+          "desert": 1,
+          "snow": 1,
+          "rural": 1
+        }
       }
     }
   },
   "walker": {
-    "x": 12740.061475842818,
-    "y": 15471.495971334863,
-    "heading": 180.0
+    "x": 12774.816120827212,
+    "y": 15335.391154896088,
+    "heading": 0.0
   }
 }

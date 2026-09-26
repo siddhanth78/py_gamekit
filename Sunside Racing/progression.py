@@ -11,6 +11,22 @@ HARDER_MULTIPLIER = 2
 FAST_TRAVEL_LEVEL = 3    # Reaching this level lets the player fast travel to the region.
 CENTER_RACES = 10        # Races at each region's racing center.
 ISLAND_LEVEL = 25        # With every center complete, one region at this level opens the island.
+RATING_BASE = 100        # A level-1 (stock) car's rating.
+RATING_PER_LEVEL = 10    # Each level adds this much rating (and SPEED_PER_LEVEL top speed).
+
+
+def rating(level: int) -> int:
+    """The car rating at a region level: 100, 110, 120, ..."""
+    return RATING_BASE + RATING_PER_LEVEL * (level - 1)
+
+
+def rating_speed(value: float) -> float:
+    """Top-speed multiplier of a car rated value: every 10 points is +4% over stock."""
+    return 1.0 + SPEED_PER_LEVEL * (value - RATING_BASE) / RATING_PER_LEVEL
+
+
+def show_rating(value: float) -> str:
+    return str(int(round(value, 6) + 0.5))  # Halves round up (1.15 x 110 is 126.4999...).
 
 
 def mastery_to_next(level: int) -> int:
@@ -79,6 +95,9 @@ class Progress:
         """Top-speed multiplier where the car is; beaches, sea, and island have no level."""
         level = self.levels.get(region, 1)
         return 1.0 + SPEED_PER_LEVEL * (level - 1)
+
+    def rating(self, region: str) -> int:
+        return rating(self.levels.get(region, 1))
 
     def harder_unlocked(self, region: str) -> bool:
         return self.levels[region] >= HARDER_LEVEL

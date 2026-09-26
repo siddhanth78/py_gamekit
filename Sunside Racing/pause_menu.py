@@ -55,7 +55,7 @@ PANEL_SIZE = {"main": (480, 560), "help": (720, 700), "mastery": (1180, 640)}
 # Mastery table: (header, x offset from the panel's left edge). Unlocks read in level
 # order: fast travel (level 3) before veteran givers (level 5).
 MASTERY_COLUMNS = (("REGION", 40), ("LEVEL", 160), ("PROGRESS", 225), ("CENTER", 395),
-                   ("SPEED", 475), ("COMPLETED", 560), ("MISSION", 755), ("TRAVEL", 950),
+                   ("RATING", 475), ("COMPLETED", 560), ("MISSION", 755), ("TRAVEL", 950),
                    ("VETERANS", 1050))
 COLUMN_WIDTHS = (120, 60, 160, 70, 80, 190, 170, 84, 100)
 PROGRESS_COL, CENTER_COL, TRAVEL_COL, VETERANS_COL = 2, 3, 7, 8
@@ -123,7 +123,7 @@ class PauseMenu:
         for cells, row in zip(self.cells, rows):
             done = row["completed"]
             texts = (row["region"].title(), str(row["level"]), f"{row['mastery']} / {row['need']}",
-                     f"{row['races']} / 10", f"+{row['speed']}%",
+                     f"{row['races']} / 10", str(row["rating"]),
                      f"Del {done['delivery']}  ·  Trial {done['speed']}  ·  Drag {done['drag']}",
                      row["mission"] or "—", TRAVEL_TEXT[row["travel"]],
                      "Unlocked" if row["veterans"] else "Lvl 5")

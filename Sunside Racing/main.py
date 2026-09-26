@@ -25,7 +25,7 @@ from mission_ui import MissionPanel
 from missions import TITLES, Missions
 from parking import Parking
 from pedestrians import Pedestrians
-from progression import CENTER_RACES, ISLAND_LEVEL, REGIONS
+from progression import CENTER_RACES, ISLAND_LEVEL, REGIONS, rating
 from racers import LAPS, REQUIRED_LEVELS, cut_chance, rival, track_size
 from pause_menu import PauseMenu
 from player_save import PlayerSave
@@ -300,15 +300,17 @@ class Game:
             return
         race = won + 1
         name, line, _ = rival(region, race)
-        level = self.missions.progress.levels[region]
         self.pending_center, self.pending_offer = region, None
+        # The rival is calibrated so a flawless driver at REQUIRED_LEVELS just wins:
+        # its rating is that level's.
         self.panel.show_offer({
             "title": title, "difficulty": f"Race {race} / {CENTER_RACES}",
             "detail": f'{name}: "{line}"',
-            "rules": f"{LAPS} laps on {SURFACE_NAMES[region]}  ·  "
-                     f"Suggested level {REQUIRED_LEVELS[race - 1]} (yours: {level})",
-            "reward": ("Win to become the region's champion" if race == CENTER_RACES
-                       else f"Win to unlock race {race + 1}"),
+            "rules": f"{name} ({rating(REQUIRED_LEVELS[race - 1])}) VS "
+                     f"You ({self.missions.progress.rating(region)})",
+            "reward": f"{LAPS} laps on {SURFACE_NAMES[region]}  ·  "
+                      + ("win to become champion" if race == CENTER_RACES
+                         else f"win to unlock race {race + 1}"),
         })
 
     def _start_center_race(self, region):
@@ -400,7 +402,8 @@ class Game:
         offer = self.missions.accept(giver)
         if offer.type == "drag":
             scale = self.missions.progress.speed_scale(giver.region)
-            self.race = DragRace(offer.track, offer.scale, scale, offer.seed)
+            # The rival is fixed to the player's car when the offer was made.
+            self.race = DragRace(offer.track, self.missions.rival_multiplier(offer), scale, offer.seed)
             self.race_over = 0.0
             self.zoom = DRIVE_ZOOM
 

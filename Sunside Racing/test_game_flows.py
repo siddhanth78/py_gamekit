@@ -82,6 +82,15 @@ class GameFlowTests(unittest.TestCase):
         self.assertEqual(g.missions.progress.races["city"], 0)
         self.assertLess(math.dist((g.walker.x, g.walker.y), (cx, cy)), 250)
 
+    def test_center_offers_show_both_ratings(self):
+        g = self.game
+        g.missions.progress.add("city", 10 + 20)         # Level 3: rating 120.
+        g.missions.progress.races["city"] = 3            # Race 4 needs level 5: rating 140.
+        cx, cy = g.missions.center_position("city")
+        g._step_out(Walker(cx, cy + 110))
+        self.press(pygame.K_e)
+        self.assertEqual(g.panel.lines[1].text, "Mara Quill (140) VS You (120)")
+
     def test_left_and_right_pick_the_confirm_buttons(self):
         g = self.game
         cx, cy = g.missions.center_position("city")
@@ -133,6 +142,20 @@ class GameFlowTests(unittest.TestCase):
         self.press(pygame.K_RETURN, pygame.K_ESCAPE)
         self.assertNotIn("abort", g.menu.items)
         self.assertNotIn("quit_race", g.menu.items)
+
+    def test_a_drag_rival_keeps_its_offer_time_speed_after_leveling(self):
+        g = self.game
+        dg = g.missions.by_id["city-drag"]
+        g.missions.progress.add("city", 10)             # Level 2 when offered.
+        g.missions.offers[dg.id] = Offer(dg.id, "drag", 1.15, None, {"kind": "straight", "theme": "city"},
+                                         5, dict(g.missions.progress.levels))
+        g.missions.progress.add("city", 20)             # Level 3 by the time it's accepted.
+        g._step_out(Walker(dg.x + 20, dg.y))
+        self.press(pygame.K_e)
+        self.assertEqual(g.panel.lines[1].text, "Rival (127) VS You (120)")
+        self.press(pygame.K_RETURN)
+        self.assertAlmostEqual(g.race.rival.scale, 1.106)          # Rated 126.5, from level 2.
+        self.assertAlmostEqual(g.race.speed_scale, 1.08)           # The player is level 3.
 
     def test_pausing_during_a_win_cannot_turn_it_into_a_loss(self):
         g = self.game

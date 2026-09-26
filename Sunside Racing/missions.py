@@ -14,7 +14,8 @@ from dataclasses import dataclass
 
 from car import OFF_SURFACE, SURFACES, TOP_SPEED
 from collision_manager import CollisionManager, nearest_clear_spot
-from progression import FAST_TRAVEL_LEVEL, REGIONS, Progress, reward
+from progression import (FAST_TRAVEL_LEVEL, REGIONS, SPEED_PER_LEVEL, Progress, rating, rating_speed,
+                         reward, show_rating)
 from walker import Walker
 from world import CENTERS, SECTOR_SIZE, SECTORS, TILE_SIZE, Sprite
 
@@ -22,7 +23,9 @@ from world import CENTERS, SECTOR_SIZE, SECTORS, TILE_SIZE, Sprite
 TYPES = ("delivery", "speed", "drag")
 # The "speed" key is the time trial (it was once called the speed check); saves use the key.
 TITLES = {"delivery": "Delivery", "speed": "Time Trial", "drag": "Drag Race"}
-BASE_REWARD = {"delivery": 2, "speed": 1, "drag": 3}  # Delivery at 75+ points; 1 at 50+.
+BASE_REWARD = {"delivery": 2, "speed": 1, "drag": 3}
+MAX_SCALE = 1.25
+MAX_DRAG_SCALE = 1.15   # Drag rivals above this were too hard to beat.  # Delivery at 75+ points; 1 at 50+.
 DELIVERY_PENALTY = {"Easy": 5, "Medium": 10, "Hard": 15}
 DELIVERY_TIERS = ((75, 2), (50, 1))
 CRASH_GRACE = 1.0            # Seconds after a crash before another one counts.
@@ -66,11 +69,15 @@ class Offer:
     target: tuple[float, float] | None = None   # Delivery recipient or speed-check finish.
     track: dict | None = None                   # Drag race level: kind, shape, theme.
     seed: int = 0
+    # The player's region levels when the offer was made. Drag rivals and time-trial
+    # clocks are fixed to the player's car at that moment, so leveling up afterwards
+    # makes the same offer easier.
+    levels: dict | None = None
 
     def to_dict(self):
         return {"type": self.type, "scale": self.scale,
                 "target": list(self.target) if self.target else None,
-                "track": self.track, "seed": self.seed}
+                "track": self.track, "seed": self.seed, "levels": self.levels}
 
     @classmethod
     def from_dict(cls, giver_id, data):
@@ -92,13 +99,19 @@ class Offer:
             raise ValueError("bad track")
         if (data["type"] == "drag") != (track is not None) or (data["type"] != "drag") != (target is not None):
             raise ValueError("offer shape does not match its type")
-        return cls(giver_id, data["type"], float(scale), target, track, int(data.get("seed", 0)))
+        levels = data.get("levels")
+        if levels is not None and (not isinstance(levels, dict) or not all(
+                region in REGIONS and type(level) is int and level >= 1
+                for region, level in levels.items())):
+            raise ValueError("bad levels")
+        return cls(giver_id, data["type"], float(scale), target, track, int(data.get("seed", 0)),
+                   levels)
 
 
 class ActiveMission:
-    def __init__(self, offer: Offer, giver: Giver, time_limit: float = 0.0):
+    def __init__(self, offer: Offer, giver: Giver, time_limit: float = 0.0, label: str = ""):
         self.offer, self.giver = offer, giver
-        self.label = difficulty(offer.scale)
+        self.label = label or difficulty(offer.scale)
         self.points = 100
         self.crashes = 0
         self.grace = 0.0
@@ -122,6 +135,12 @@ class Missions:
             if giver_id in self.by_id:
                 try:
                     parsed = Offer.from_dict(giver_id, offer)
+                    if parsed.type == "drag":
+                        # Offers saved before the drag cap waiting at givers get it too.
+                        parsed.scale = min(parsed.scale, MAX_DRAG_SCALE)
+                    if parsed.levels is None:
+                        # Saved before offers recorded levels: fix them to today's.
+                        parsed.levels = dict(self.progress.levels)
                     if parsed.type == self.by_id[giver_id].type:
                         self.offers[giver_id] = parsed
                 except (ValueError, TypeError):
@@ -180,14 +199,15 @@ class Missions:
     def _new_offer(self, giver: Giver) -> Offer:
         self.counter += 1
         rng = random.Random(f"{self.seed}-{giver.id}-{self.counter}")
-        scale = round(rng.uniform(0.8 if giver.harder else 0.5, 1.25), 3)
+        top = MAX_DRAG_SCALE if giver.type == "drag" else MAX_SCALE
+        scale = round(rng.uniform(0.8 if giver.harder else 0.5, top), 3)
         seed = rng.randrange(1 << 30)
         if giver.type == "drag":
             kind = rng.choice(("straight", "circuit"))
             track = {"kind": kind, "theme": giver.region}
             if kind == "circuit":
                 track.update(seed=seed, size=rng.randint(4, 7))  # Its own generated layout.
-            return Offer(giver.id, "drag", scale, None, track, seed)
+            return Offer(giver.id, "drag", scale, None, track, seed, dict(self.progress.levels))
         low, high = DELIVERY_DISTANCE if giver.type == "delivery" else SPEED_DISTANCE
         collisions = CollisionManager(None, self.world)
         for _ in range(40):
@@ -200,21 +220,52 @@ class Missions:
                 continue
             spot = self._open_spot(collisions, x, y, clearance=32)
             if spot and low * 0.8 <= math.dist(spot, (giver.x, giver.y)):
-                return Offer(giver.id, giver.type, scale, spot, None, seed)
+                return Offer(giver.id, giver.type, scale, spot, None, seed, dict(self.progress.levels))
         # Fall back to another racing center, which always has open ground around it.
         sector = rng.choice([s for s, n in CENTERS.items() if n != "center_island"])
         cx, cy = self.world.center_position(*sector)
-        return Offer(giver.id, giver.type, scale, self._open_spot(collisions, cx, cy + 220), None, seed)
+        return Offer(giver.id, giver.type, scale, self._open_spot(collisions, cx, cy + 220), None, seed,
+                     dict(self.progress.levels))
+
+    def offer_multiplier(self, offer: Offer, region: str | None = None) -> float:
+        """The player's top-speed multiplier in region (default: the giver's) when offered."""
+        region = region or self.by_id[offer.giver_id].region
+        level = (offer.levels or self.progress.levels).get(region, 1)
+        return 1.0 + SPEED_PER_LEVEL * (level - 1)
+
+    def rival_rating(self, offer: Offer) -> float:
+        """Drag rival rating: the offer's scale times the player's rating when offered
+        (1.15 at level 2 = 1.15 x 110 = 126.5). It never changes afterwards."""
+        region = self.by_id[offer.giver_id].region
+        return offer.scale * rating((offer.levels or self.progress.levels).get(region, 1))
+
+    def rival_multiplier(self, offer: Offer) -> float:
+        """Drag rival speed vs a stock car, from its rating."""
+        return rating_speed(self.rival_rating(offer))
+
+    def effective_scale(self, offer: Offer) -> float:
+        """Difficulty against the player's car now: drag compares ratings, time trials compare
+        top speeds. Both get easier as the player levels past the offer; deliveries don't."""
+        region = self.by_id[offer.giver_id].region
+        if offer.type == "drag":
+            return self.rival_rating(offer) / self.progress.rating(region)
+        if offer.type == "speed":
+            return offer.scale * self.offer_multiplier(offer) / self.progress.speed_scale(region)
+        return offer.scale
+
+    def label(self, offer: Offer) -> str:
+        return difficulty(self.effective_scale(offer))
 
     def speed_limit(self, offer: Offer, start) -> float:
-        """Timer: distance x DETOUR at 80% x scale of the top speed of the ground covered."""
+        """Timer: distance x DETOUR at 80% x scale of the top speed of the ground covered,
+        using the player's levels when the offer was made (so it never shrinks later)."""
         (ax, ay), (bx, by) = start, offer.target
         steps = max(1, int(math.dist(start, offer.target) // 64))
         seconds = 0.0
         for i in range(steps):
             x, y = ax + (bx - ax) * (i + 0.5) / steps, ay + (by - ay) * (i + 0.5) / steps
             region = self.world.region_at(x, y)
-            top = SURFACES.get(region, OFF_SURFACE)[1] * self.progress.speed_scale(region)
+            top = SURFACES.get(region, OFF_SURFACE)[1] * self.offer_multiplier(offer, region)
             seconds += math.dist(start, offer.target) / steps * DETOUR / (
                 top * SPEED_EFFICIENCY * offer.scale)
         return seconds
@@ -226,7 +277,7 @@ class Missions:
     def preview(self, offer: Offer) -> dict:
         """What the offer panel shows."""
         giver = self.by_id[offer.giver_id]
-        label = difficulty(offer.scale)
+        label = self.label(offer)
         lines = {"title": giver.name, "difficulty": label}
         if offer.type == "delivery":
             where = self.world.region_at(*offer.target).title()
@@ -244,7 +295,8 @@ class Missions:
         else:
             track = "quarter-mile straight" if offer.track["kind"] == "straight" else "single-lap circuit"
             lines["detail"] = f"Race a rival on a {track}"
-            lines["rules"] = f"Rival at {offer.scale:.2f}x a stock car"
+            lines["rules"] = (f"Rival ({show_rating(self.rival_rating(offer))}) VS "
+                              f"You ({self.progress.rating(giver.region)})")
             lines["reward"] = f"Win: {self.reward_for(offer, 3)} mastery"
         return lines
 
@@ -253,8 +305,10 @@ class Missions:
     def accept(self, giver: Giver) -> Offer:
         """Start the giver's offer. Returns it; drag races are run by the caller."""
         offer = self.offer_for(giver)
+        if offer.levels is None:
+            offer.levels = dict(self.progress.levels)
         limit = self.speed_limit(offer, (giver.x, giver.y)) if offer.type == "speed" else 0.0
-        self.active = ActiveMission(offer, giver, limit)
+        self.active = ActiveMission(offer, giver, limit, self.label(offer))
         return offer
 
     def update(self, dt: float, player_x: float, player_y: float, in_car: bool,
@@ -368,6 +422,7 @@ class Missions:
                 "region": region, "level": level,
                 "mastery": self.progress.mastery[region], "need": 10 * level,
                 "speed": round((self.progress.speed_scale(region) - 1) * 100),
+                "rating": self.progress.rating(region),
                 "veterans": self.progress.harder_unlocked(region),
                 "completed": dict(self.progress.completed[region]),
                 "mission": mission,
