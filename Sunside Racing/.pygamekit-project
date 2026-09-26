@@ -1,0 +1,56 @@
+{
+  "tool": "PyGameKit",
+  "schema_version": 1,
+  "project_root": ".",
+  "directories": [
+    "assets",
+    "bitmap"
+  ],
+  "files": {
+    "code": [
+      "asset_sources.py",
+      "car.py",
+      "collision_manager.py",
+      "game_state.py",
+      "hud.py",
+      "input_handler.py",
+      "main.py",
+      "parking.py",
+      "pause_menu.py",
+      "player_save.py",
+      "test_parking.py",
+      "test_player_save.py",
+      "test_respawn_and_menu.py",
+      "test_traffic.py",
+      "test_walker.py",
+      "test_world_save.py",
+      "traffic.py",
+      "ui_text.py",
+      "walker.py",
+      "world.py",
+      "world_save.py"
+    ],
+    "assets": [
+      "assets/atlas-manifest.json",
+      "assets/people-atlas.png",
+      "assets/prop-atlas.png",
+      "assets/road-atlas.png",
+      "assets/structure-atlas.png",
+      "assets/terrain-atlas.png",
+      "assets/vehicle-atlas.png"
+    ],
+    "bitmaps": [
+      "bitmap/people-atlas.json",
+      "bitmap/prop-atlas.json",
+      "bitmap/road-atlas.json",
+      "bitmap/structure-atlas.json",
+      "bitmap/terrain-atlas.json",
+      "bitmap/vehicle-atlas.json"
+    ],
+    "other": [
+      "plan.txt",
+      "player.json",
+      "world.json"
+    ]
+  }
+}

@@ -278,6 +278,11 @@ LLM agents only implement when the user explicitly uses **"build"** or **"buildi
 
 Synonyms like "make," "create," "implement," "code," "start" do NOT authorize implementation.
 
+During planning, the agent creates and updates `<project-root>/plan.txt` with
+agreed decisions, open questions, and progress. A later authorized build reads
+that file before changing game code or assets. The plan preserves context but
+does not itself authorize implementation.
+
 ---
 
 ## Using `gl_utils.py` (Rendering API)

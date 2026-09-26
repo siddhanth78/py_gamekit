@@ -1,0 +1,340 @@
+SUNSIDE RACING GAME PLAN
+
+Status
+- The asset pack, first playable world/driving slice, player saving,
+  seeded, disk-cached world, world scenery dressing, distinct racing
+  centers, and rudimentary traffic are built. Races are not built.
+- This file preserves decisions; it is not permission to implement. A future
+  game build still needs the user's direct "build" or "building" instruction.
+
+Agreed world
+- Top-down, open-world racing game on a 64 x 64 grid of scene-sized sectors.
+- Load nearby sectors as the player drives. Keep distant sectors as lightweight
+  map data; only nearby scenery, traffic, and collisions need to be active.
+- Mainland: city center; jungle northwest; desert northeast; snow southwest;
+  rural dirt region southeast. Beach borders the land, with sea extending to
+  the world boundary. The player cannot leave the world or drive into the sea.
+- A separate island sits offshore within the 64 x 64 grid and unlocks after
+  all mainland races. The current world generator places it around sector
+  (56, 31); its unlock and access mechanic remain open.
+- The current prototype uses 512-pixel sectors, each containing an 8 x 8 grid
+  of 64-pixel terrain tiles. Only camera-near sectors are generated; explored
+  sectors are saved in world.json and loaded from disk on later launches.
+
+Roads and scenery
+- City: wide grid roads, buildings, and rudimentary traffic.
+- Jungle and desert: no roads, fully off-road.
+- Snow: winding icy roads. Rural: branching dirt roads. Beach: off-road.
+- Road connections and scenery should line up across sector boundaries.
+
+Racing progression
+- One racing center in each mainland region: city, jungle, desert, snow,
+  rural. Each center has 10 races with increasing difficulty (50 total).
+- Completing all 50 mainland races unlocks the island's final five races.
+- Races are distinct routes through the shared world, not separate maps.
+- Race routes, opponents, rewards, and precise unlock rules beyond the island
+  requirement remain to be designed.
+
+Saving completed
+- On normal exit, main.py saves the car's position and heading to player.json
+  in the project root. On the next launch, it resumes there, stationary.
+  Earlier saves in the operating system's user data directory can be loaded
+  once and are written to the new project-root location on exit.
+- player_save.py writes versioned JSON atomically. It validates finite
+  coordinates, drivable terrain, and solid scenery on load; an absent or
+  invalid save falls back to the starting position.
+- world_save.py writes project-root world.json atomically. It stores the
+  explicit world seed (default 2026) and generated sprites for only explored
+  sectors. An existing world.json supplies the seed and those sectors on
+  launch; unexplored sectors remain lazily generated from that seed.
+- Traffic and other dynamic world state are not serialized yet.
+- When car selection, currency, upgrades, and race results are built, extend
+  the player save with those player-owned fields.
+
+Assets completed
+- Five PNG atlases and editable bitmap JSON sources are in assets/ and bitmap/:
+  terrain, roads, vehicles, structures, and props (136 named sprites total).
+- assets/atlas-manifest.json records atlas grids and shader tile coordinates.
+- asset_sources.py is the deterministic source for the bitmap specifications.
+
+First playable slice completed
+- main.py runs a textured 64 x 64 world with camera follow and nearby sector
+  generation. It displays the city, surrounding biomes, beach, sea, and island.
+- The OpenGL window requests vsync, and vsync alone paces the game loop (see
+  the tearing fix below).
+- The player drives with WASD or arrows; Space applies a handbrake, R unsticks
+  the car nearby, and Escape opens the pause menu. Grip and top speed vary by terrain. Sea, world bounds,
+  buildings, and solid props block the car.
+- This slice does not include traffic, race events, opponents, menus,
+  or a way to reach the locked island. Those remain future work.
+
+Tearing / frame pacing fix completed
+- Diagnosed 2026-09-25 on an Apple M3 built-in 60 Hz display (pygame-ce
+  2.5.7, SDL 2.32.10). Vsync works: flip() alone paces at 16.67 ms. The old
+  extra clock.tick(60) cap fought vsync and dropped frames (33 ms spikes).
+  Fractional camera positions made NEAREST-filtered tiles shimmer.
+- main.py now uses clock.tick() (uncapped; vsync'd flip() paces frames, dt is
+  still clamped to 0.05 s) and camera_position() rounds to whole pixels.
+  TARGET_FPS was removed.
+- Verified with a scripted 6-second drive: 16.67 ms mean, 0.29 ms stdev,
+  18 ms worst frame, no frames over 20 ms; camera always on whole pixels.
+- Remaining: a visual playtest. If tile seams still show, inset atlas UVs by
+  half a texel in a game-local copy of the texture shader (shaders/ is shared
+  and read-only). On a display faster than 60 Hz the game will run at that
+  refresh rate; dt-based movement already handles this.
+
+World dressing completed (2026-09-25)
+- world.py now places the unused scenery assets deterministically per sector:
+  - Coasts: shore_north/south/east/west on beach tiles facing the sea,
+    sea_foam on sea tiles touching land, occasional buoys in coastal water.
+  - City: crosswalks on the four road tiles around each intersection (rotated
+    for east-west arms), street lamps and traffic lights at the corners plus
+    mid-block lamps, and about 1 in 5 building lots replaced by a parking_lot
+    with parked traffic cars (solid). The city racing center now takes a
+    building lot instead of sitting on the intersection. Street poles are
+    non-solid so cornering never snags.
+  - Rural: about half of rural sectors get a farmstead clear of dirt roads:
+    rural_barn on a dirt_gravel yard, a 3 x 2 farm_rows field fenced with
+    farm_fence, and hay_a/hay_b bales.
+  - Snow: snow_marker poles (non-solid) beside straight ice roads.
+  - Ferry: beach_ferry_dock on the mainland beach at (47, 31) facing east and
+    on the island beach at (52, 31) facing west, with channel buoys between.
+    This is scenery only; the island access mechanic is still open.
+  - Variety: jungle_tree_d, pine_d, cactus_c, rock_snow_b, hay_b, bush_dry,
+    palm_c added to scatter; denser scatter and 64/72/80 px size variation.
+- world_save.py records GENERATOR_VERSION (now 2). World saves from an older
+  generator keep their seed but regenerate cached sectors lazily.
+- Vehicle-atlas render capacity raised to 512 for parked cars.
+- Still unused by design: race_* props, barrier, cone, city_start/finish,
+  rural_start (race events); moving traffic and racers (traffic system);
+  dark_asphalt, city_parking road tile, ice_tee/dirt_tee.
+- Known: at beach corner tiles only one shoreline strip is drawn; the snow
+  racing center sits at the end of its icy road (pre-existing).
+
+Racing centers, speed, and traffic completed (2026-09-25)
+- Racing centers: 160 px building (solid 104) on a 4 x 4 dark_asphalt plaza
+  with a race_start gate on the south edge, race_finish gate on the north,
+  solid barriers flanking open entries on every side, and corner cones.
+  Scatter and city street poles are kept off the plaza. World generator
+  version is now 3, so cached sectors regenerate.
+- Guidance: hud.py draws a yellow screen-edge arrow (gl_utils polygon helpers
+  with the shared line shaders) toward the current region's center while it
+  is off screen; beaches point to the nearest center; no arrow at sea. The
+  window caption shows the center name, distance (10 px = 1 m), and compass
+  direction.
+- Car top speeds lowered about 22% (city 340, island 310, rural 280,
+  desert 265, snow 255, jungle 220, beach 210 px/s). Acceleration unchanged.
+- Top speeds halved again for control (2026-09-25): city 170, island 155,
+  rural 140, desert 132, snow 128, jungle 110, beach 105 px/s; reverse cap
+  80 x grip. Acceleration and steering unchanged. Note: city traffic
+  (140-180 px/s) is now about as fast as the player; open question whether
+  to slow it too.
+- Traffic (traffic.py), deterministic from the world seed (56 cars at
+  first; see the busy city section for the current total):
+  - City: 10 rectangular loops on the road grid, 3 cars each, 140-180 px/s.
+  - Snow: 4 cars there-and-back on the ice road (100-120 px/s).
+  - Rural: 4 cars on the main dirt road, 1 on each branch (120-140 px/s).
+  - Jungle and desert: 3 off-road 4x4s each on wandering loops kept inside
+    their region (85-110 px/s).
+  - Extra pairs (added 2026-09-25, reusing existing sprites): 2 taxis,
+    2 buses, 2 police cars, and 2 delivery vans, each pair on its own city
+    loop, plus 2 SUVs on the snow road. They are generated after the
+    original 46, so the original routes are unchanged.
+  - Right-hand lanes with mitered corners and U-turns at dead ends.
+  - Cars are solid to the player, stop short of the player, and queue
+    behind a same-direction car ahead. Yielding runs only within 1600 px of
+    the player.
+- Known limits: cars crossing at intersections pass through each other, and
+  off-road 4x4s drive through trees and rocks. Traffic is not saved.
+- Tests: test_traffic.py covers lanes, road adherence, off-road regions, and
+  yielding.
+
+Nearby respawn and pause menu completed (2026-09-25)
+- R now calls Car.respawn_nearby(): it searches outward in 8 px rings (up to
+  480 px) for the closest spot where the car plus 16 px of clearance is
+  drivable and free of scenery and traffic, keeps the heading, and stops the
+  car. On a spot that is already clear it just stops the car. It returns to
+  the start only if nothing nearby is free. Typical cost is 4-10 ms.
+- pause_menu.py: Escape (or losing window focus) pauses the simulation and
+  draws a dimmed world, a framed panel with a PAUSED title, and Resume / Exit
+  buttons. W/S or arrows choose, Enter or Space confirms, Escape resumes, and
+  mouse hover and click work via check_mouse_collisions. Exit saves and quits
+  like closing the window. Drawn with the rect and tex gl_utils pipelines.
+  Labels come from an in-memory text atlas made with pygame fonts and tinted
+  per state.
+- Tests: test_respawn_and_menu.py.
+
+Parked-car commuters completed (2026-09-25)
+- parking.py: in city lots within 2 sectors of the player, about 35% of
+  nose-in parked cars (chosen stably per stall) are commuters. After 3-25 s
+  (then 15-45 s between trips) one backs out of its stall to the aisle,
+  drives to the nearest north-south road, laps one city block in the
+  right-hand lane (away from the lot first so it returns straight), comes
+  back, and pulls forward into the same stall.
+- While a car is out, its stall is empty and not solid; the moving car is a
+  TrafficCar (same sprite, 56 px, 18 x 38 solid). It is solid to the player
+  and yields like other traffic. TrafficCar gained one-way trips,
+  reverse-driven segments, and per-car size and solid box.
+- Trips already underway finish even if the player drives off; parked timers
+  reset for lots the player has left. Nothing new is saved: static parked
+  sprites stay in world.json, so every car is parked on relaunch.
+- Tests: test_parking.py (including every commuter route avoiding buildings
+  and centers). Parking and traffic updates cost about 0.26 ms per frame.
+- Known limits: nose-out parked cars (180 degrees) never move, and
+  commuters pass through other cars in the lot aisle.
+
+Busy city traffic completed (2026-09-25)
+- Target mix agreed: busy city, quiet rural and snow, very quiet jungle and
+  desert. 70 extra city loops (EXTRA_CITY_LOOPS, 3 cars each) are generated
+  after all earlier traffic, so earlier routes are unchanged. Rural (6),
+  snow (6), jungle (3), and desert (3) are unchanged. Total 266 cars: 248 in
+  the city. Plus parked commuters.
+- Measured: about 9 cars on screen in the city on average (max about 18).
+  Traffic and parking updates cost about 0.9 ms per frame.
+- Intersection yielding: a car about to enter a city intersection box
+  (60 x 60 px) waits if a perpendicular car is inside it or claimed it
+  first. Cars already inside never stop for the crossing.
+- Queues behind the player or a car ahead always hold, so cars never drive
+  through each other in a queue, and a player stopped in a lane backs up
+  traffic. Only intersection waits give up after 4 s (PATIENCE), which
+  prevents gridlock; this happened about 5 times per simulated minute. A
+  stress run (8 simulated minutes, 4 busy spots) had no car stall 10 s.
+- Tests: test_traffic.py adds the regional mix, intersection yielding, and a
+  no-gridlock check.
+
+HUD, title, handling, and help completed (2026-09-25)
+- The game is named Sunside Racing: the project directory is now
+  "Sunside Racing/" (the marker moved with it) and the window title is a
+  fixed "Sunside Racing". player_save.py keeps its legacy APP_NAME only to
+  find older saves.
+- HUD (hud.Hud) replaces the dynamic window title:
+  - Top-left panel: region name and "<Region> racing center · N m DIR" (or
+    "Open water").
+  - Speedometer (now compact, bottom-right; see below): speed number (px/s shown as KM/H, tinted
+    by speed) and a 20-segment bar. Lit segments run green, then yellow,
+    then red, scaled to TOP_SPEED (170, city).
+  - Text uses ui_text.py: pygame-font text uploaded with the same path as
+    gl_utils.load_texture, drawn with the shared tex shader. Panels use the
+    rect pipeline.
+- Acceleration lowered: ACCELERATION 85, REVERSE_ACCELERATION 90, BRAKING 420
+  (all times grip). The city takes 2.0 s to reach 170; braking from 170
+  takes 0.42 s.
+- Pause menu has Resume / Help / Exit. Help opens a CONTROLS page listing
+  keys and the racing-center goal; BACK, Enter, or Esc returns to the menu.
+
+Compact speedometer completed (2026-09-25)
+- The speedometer moved to the bottom-right and shrank to one-third size:
+  a 124 x 32 px panel with 24 px margins. It has a size-24 speed number, a
+  size-15 KM/H label (at 13 the "/" was lost), and a 60 px, 20-segment bar
+  that still runs green to red. The top-left region panel is unchanged.
+
+Speedometer scaled up (2026-09-25)
+- hud.SPEEDO_SCALE = 2 doubles the compact bottom-right speedometer to
+  248 x 64 px (about two-thirds of the original 368 x 96). The number is
+  font 48, KM/H is font 29, and the bar is 120 px. Change SPEEDO_SCALE to
+  resize everything together.
+
+Orbiting guide arrow completed (2026-09-25)
+- The yellow racing-center arrow now circles the player's car instead of
+  sitting at the screen edge. Its base is 56 px from the car's center and
+  its tip 88 px, pointing at the current region's center (hud.orbit_tip).
+  It follows the car even where the camera clamps at the world edge.
+- It is drawn last (after the world and the HUD) so nothing covers it, and
+  hidden only while the pause menu is open or within 300 px of the center.
+- The arrow is longer and narrower (32 x 16 px, dark outline) so its tip
+  reads clearly at any angle. This resolves the old note about the arrow
+  passing under the HUD panel.
+
+Planned: on-foot mode with pedestrians and NPCs (agreed 2026-09-25, not built)
+- Idea: the player can exit the car and walk around. Pedestrians walk fixed
+  paths (sidewalks, crosswalks, into and out of buildings). Select NPCs can
+  be interacted with.
+- Performance: fine at this scale. A frame is about 2.6 ms render plus
+  0.9 ms traffic out of 16.7 ms. Packing costs about 1.4 us per on-screen
+  sprite, so even 1,000 on-screen sprites add only about 1.4 ms.
+  Pedestrians should be simulated only near the player (like parked
+  commuters) with no all-pairs avoidance checks.
+- Likely pieces:
+  - New pedestrian/NPC sprite atlas (PNG skill), drawn above props and
+    below vehicles.
+  - Sidewalk and crosswalk walk paths; door points on buildings (a
+    pedestrian "enters" by reaching a door and despawning, later
+    reappearing).
+  - On-foot player: small collision box, walking speed, E to exit or enter
+    the car. The parked player car becomes a world obstacle.
+  - NPC interaction: proximity prompt plus a dialogue panel reusing the
+    pause-menu UI style.
+  - Cheap wins first: throttle HUD text re-renders (about 1 ms to 0.1 ms)
+    and tighten the sprite gather margin.
+- Decisions (2026-09-25):
+  - Camera zooms in while on foot (proposed 2x; exact level still open).
+  - Buildings: doors only. Pedestrians walk to a door, disappear, and later
+    reappear. Interiors only for a few buildings the user will choose later.
+  - NPCs: mostly tiny missions (short fetch, deliver, or drive-to tasks),
+    started by walking up to an NPC and pressing E.
+  - Cars stop for pedestrians (same yield rule traffic uses for the
+    player); pedestrians cannot be hit.
+- Build order (steps 1 and 2 done 2026-09-25):
+  1. DONE: render wins. world.visible_sprites gathers only sectors touching
+     the view plus a 96 px margin (GATHER_MARGIN): 1,109 sprites gathered
+     instead of 2,588, 0.37 ms to 0.17 ms. HUD text re-renders at most every
+     0.2 s (speed every 0.1 s). The real HUD cost was reusing one instance
+     buffer for every label in a frame (each write waited for the GPU); each
+     label now has its own buffer: HUD 1.09 ms to 0.09 ms. The whole frame
+     went from 2.63 ms to 1.67 ms (vsync off, city start).
+  2. DONE: on foot.
+     - E beside a nearly stopped car (under 15 px/s) steps out on the
+       driver's side (else passenger, back, front); E within 44 px of the car
+       gets back in.
+     - walker.py: W/A/S/D move in screen directions at 60 px/s (Shift runs
+       at 105), slide along walls, and use a 12 px collision box and
+       2-frame walk animation.
+     - While on foot the parked car is solid (CollisionManager.fixed) and
+       traffic stops for it and for the walker (Traffic.update blockers).
+     - The camera eases to 2x zoom on foot and back to 1x in the car.
+       GameState.render scales positions and sizes by zoom, and the camera
+       snaps to whole screen pixels.
+     - HUD hides the speedometer on foot and shows a bottom-center prompt
+       ("E  Get in"), reusable for NPC prompts. R unsticks the walker too
+       (shared nearest_clear_spot).
+     - New people-atlas.png (32 px cells: player_idle, player_walk_a,
+       player_walk_b) from asset_sources.people(); a red jacket and cream cap
+       with a dark red brim. Drawn above props and below vehicles.
+     - The Controls help page lists Shift and E and the on-foot directions.
+     - Known: a car parked in a traffic lane backs up traffic until you
+       move it.
+  3. Pedestrian sprite atlas and sidewalk/crosswalk/door walking with
+     spawning near the player; cars yield to them.
+  4. NPC prompt, dialogue panel, and a small mission system.
+  5. Interiors for buildings the user picks.
+- Still open: exact zoom level; which buildings get interiors; the first
+  handful of missions.
+
+Save on-foot mode and walker position completed (2026-09-25)
+- player.json version 2: {"version": 2, "mode": "drive"|"walk",
+  "car": {x, y, heading}, "walker": {x, y, heading} (walk mode only)}.
+  Version 1 saves ({"player": car}) still load, as drive mode. The next quit
+  rewrites them as version 2.
+- PlayerSave.load_state(collisions) returns (car, walker); load() still
+  returns just the car. The walker is validated against the world, scenery,
+  and the parked car. If it is blocked or corrupt, the player steps out
+  beside the car (exit_spot); if that fails, the player resumes driving. An
+  invalid car or unknown mode discards the save as before.
+- main.py resumes on foot with the parked car solid and the camera already
+  at 2x zoom, and saves (car, walker) on exit.
+- Tests: four new cases in test_player_save.py; an isolated end-to-end run
+  resumed on foot, walked, quit, and saved walk mode.
+- Removed note: "Quitting on foot saves the car's position; you start the
+  next session in the car" no longer applies.
+
+Technical basis
+- Keep game-specific code in this marked project. Adapt game_state.py,
+  input_handler.py, and collision_manager.py and compose them from main.py.
+- Use the documented gl_utils textured-rectangle records, load_texture,
+  get_new_instances, to_gl/update_instances, and check_collision where needed.
+- Use the atlas manifest's bottom-origin tile coordinates with the shared
+  texture shader and its u_atlas_grid uniform.
+- main.py composes world.py, car.py, game_state.py, input_handler.py, and
+  collision_manager.py; player_save.py and world_save.py handle persistence. The active renderer
+  batches instances by atlas and streams camera-relative records through the
+  documented GL helpers.

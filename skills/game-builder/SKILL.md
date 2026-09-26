@@ -20,8 +20,9 @@ Available bootstrap modes:
 - `python3 bootstrap.py --scan` – list all existing marked project directories
 - `python3 bootstrap.py --exists <name>` – check if a project directory exists
 
-This is the one allowed filesystem change during planning. It is safe to run
-repeatedly because it never overwrites existing project files.
+During planning, bootstrap and the active project's `plan.txt` are the only
+allowed filesystem changes. Bootstrap is safe to run repeatedly because it
+never overwrites existing project files.
 
 Bootstrap discovers the active workspace by its `.pygamekit-project` marker. If
 no marked project directory exists, it creates `New Project/` as the initial workspace.
@@ -87,7 +88,8 @@ For every game task:
 2. Read the project path printed by bootstrap and treat it as `<project-root>`.
 3. Read `../gl-utils-reference/SKILL.md`.
 4. Identify the documentation sections relevant to the request.
-5. Inspect the existing implementation inside `<project-root>/`.
+5. Read `<project-root>/plan.txt` if present, then inspect the existing
+   implementation inside `<project-root>/`.
 6. Base the architecture entirely on the documented APIs and conventions.
 7. If PNG work is required, read and follow `../png-bitmap-generator/SKILL.md`.
 8. During implementation, use the documented interfaces from the GL reference skill rather than creating parallel or replacement systems unless explicitly requested.
@@ -115,9 +117,18 @@ During planning:
 * Inspect existing code and assets under `<project-root>/` as needed.
 * Use the documentation to determine what the engine already supports natively.
 * Design the feature strictly around the documented project APIs.
-* Apart from the mandatory bootstrap, **do not** create, modify, rename, or delete game code, assets, tests, configuration, or generated data.
+* Create `<project-root>/plan.txt` if it does not exist. Update it as the user
+  makes decisions, changes direction, or leaves questions open. Preserve
+  existing notes and distinguish agreed decisions from proposals and completed
+  work. Keep it useful for the next session without copying the whole chat.
+* Apart from bootstrap and `plan.txt`, **do not** create, modify, rename, or
+  delete game code, assets, tests, configuration, or generated data.
+* Run bootstrap again after creating `plan.txt` so the project inventory records
+  it.
 
-A plan must identify the specific documented APIs or systems that the eventual implementation will use.
+A plan must identify the specific documented APIs or systems that the eventual
+implementation will use. The plan is continuity, not authorization; the user's
+current request takes precedence if it changes the scope or decisions.
 
 Begin implementation only when the explicit **"build"** / **"building"** gate
 above is satisfied. There is no equivalent wording.
@@ -129,15 +140,21 @@ Implementation authorization permits changes only within the scope of the agreed
 Once implementation is authorized by a qualifying **"build"** or
 **"building"** instruction:
 1. Re-check that bootstrap ran at the start of the task.
-2. Re-read or re-check the relevant sections of the GL reference skill.
-3. Inspect the generated boilerplate and other affected files in `<project-root>/`.
-4. Modify and extend `game_state.py`, `input_handler.py`, and `collision_manager.py` when their responsibilities are needed. Do not bypass them with duplicate systems.
-5. Create `<project-root>/main.py` as the composition root that initializes the engine and wires the adapted components together. It must resolve `PROJECT_ROOT` from its own file location, resolve `TOOLKIT_ROOT` as the parent directory, and add `TOOLKIT_ROOT` to `sys.path` before importing boilerplate modules that depend on `gl_utils`.
-6. Create additional focused modules inside `<project-root>/` when functionality does not belong in the three boilerplate components or `main.py`.
-7. Implement using the exact APIs, structures, formats, shaders, update behaviors, collision behaviors, and conventions documented in the GL reference skill.
-8. If PNG assets are involved, follow the PNG bitmap skill; all bitmap sources and generated PNGs must stay inside `<project-root>/`.
-9. Keep changes scoped strictly to the requested feature and verify the implementation against the documented behavior.
-10. Run `python3 bootstrap.py` again after changes so `.pygamekit-project` records the final directory and file inventory.
+2. Read `<project-root>/plan.txt` and reconcile it with the current user
+   request. If it is missing, create it with the relevant decisions from
+   available context before implementing. The plan does not expand
+   authorization beyond the user's current request.
+3. Re-read or re-check the relevant sections of the GL reference skill.
+4. Inspect the generated boilerplate and other affected files in `<project-root>/`.
+5. Modify and extend `game_state.py`, `input_handler.py`, and `collision_manager.py` when their responsibilities are needed. Do not bypass them with duplicate systems.
+6. Create `<project-root>/main.py` as the composition root that initializes the engine and wires the adapted components together. It must resolve `PROJECT_ROOT` from its own file location, resolve `TOOLKIT_ROOT` as the parent directory, and add `TOOLKIT_ROOT` to `sys.path` before importing boilerplate modules that depend on `gl_utils`.
+7. Create additional focused modules inside `<project-root>/` when functionality does not belong in the three boilerplate components or `main.py`.
+8. Implement using the exact APIs, structures, formats, shaders, update behaviors, collision behaviors, and conventions documented in the GL reference skill.
+9. If PNG assets are involved, follow the PNG bitmap skill; all bitmap sources and generated PNGs must stay inside `<project-root>/`.
+10. Keep changes scoped strictly to the requested feature and verify the implementation against the documented behavior.
+11. Update `plan.txt` to record what was completed and what remains. Run
+    `python3 bootstrap.py` again so `.pygamekit-project` records the final
+    directory and file inventory.
 
 The boilerplate is a starting architecture, not immutable vendor code. Adapt it
 to the game while preserving each module's responsibility, then wire those

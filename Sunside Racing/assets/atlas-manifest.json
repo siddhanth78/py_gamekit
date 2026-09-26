@@ -1,0 +1,1051 @@
+{
+  "format": 1,
+  "art_style": "top-down pixel art",
+  "atlases": {
+    "terrain-atlas": {
+      "png": "terrain-atlas.png",
+      "bitmap": "../bitmap/terrain-atlas.json",
+      "cell_px": 32,
+      "atlas_grid": [
+        8,
+        4
+      ],
+      "tile_origin": "bottom-left, as used by shaders/tex.frag",
+      "sprites": {
+        "grass": {
+          "tile": [
+            0,
+            3
+          ],
+          "source_row": 0
+        },
+        "jungle_ground": {
+          "tile": [
+            1,
+            3
+          ],
+          "source_row": 0
+        },
+        "desert_sand": {
+          "tile": [
+            2,
+            3
+          ],
+          "source_row": 0
+        },
+        "snow": {
+          "tile": [
+            3,
+            3
+          ],
+          "source_row": 0
+        },
+        "rural_earth": {
+          "tile": [
+            4,
+            3
+          ],
+          "source_row": 0
+        },
+        "beach_sand": {
+          "tile": [
+            5,
+            3
+          ],
+          "source_row": 0
+        },
+        "shallow_sea": {
+          "tile": [
+            6,
+            3
+          ],
+          "source_row": 0
+        },
+        "deep_sea": {
+          "tile": [
+            7,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_pavement": {
+          "tile": [
+            0,
+            2
+          ],
+          "source_row": 1
+        },
+        "city_concrete": {
+          "tile": [
+            1,
+            2
+          ],
+          "source_row": 1
+        },
+        "desert_rock": {
+          "tile": [
+            2,
+            2
+          ],
+          "source_row": 1
+        },
+        "snow_rock": {
+          "tile": [
+            3,
+            2
+          ],
+          "source_row": 1
+        },
+        "jungle_mud": {
+          "tile": [
+            4,
+            2
+          ],
+          "source_row": 1
+        },
+        "rural_grass": {
+          "tile": [
+            5,
+            2
+          ],
+          "source_row": 1
+        },
+        "wet_sand": {
+          "tile": [
+            6,
+            2
+          ],
+          "source_row": 1
+        },
+        "island_grass": {
+          "tile": [
+            7,
+            2
+          ],
+          "source_row": 1
+        },
+        "dirt_gravel": {
+          "tile": [
+            0,
+            1
+          ],
+          "source_row": 2
+        },
+        "ice": {
+          "tile": [
+            1,
+            1
+          ],
+          "source_row": 2
+        },
+        "farm_field": {
+          "tile": [
+            2,
+            1
+          ],
+          "source_row": 2
+        },
+        "jungle_leaves": {
+          "tile": [
+            3,
+            1
+          ],
+          "source_row": 2
+        },
+        "desert_dunes": {
+          "tile": [
+            4,
+            1
+          ],
+          "source_row": 2
+        },
+        "snow_drift": {
+          "tile": [
+            5,
+            1
+          ],
+          "source_row": 2
+        },
+        "city_plaza": {
+          "tile": [
+            6,
+            1
+          ],
+          "source_row": 2
+        },
+        "sea_foam": {
+          "tile": [
+            7,
+            1
+          ],
+          "source_row": 2
+        },
+        "shore_north": {
+          "tile": [
+            0,
+            0
+          ],
+          "source_row": 3
+        },
+        "shore_east": {
+          "tile": [
+            1,
+            0
+          ],
+          "source_row": 3
+        },
+        "shore_south": {
+          "tile": [
+            2,
+            0
+          ],
+          "source_row": 3
+        },
+        "shore_west": {
+          "tile": [
+            3,
+            0
+          ],
+          "source_row": 3
+        },
+        "farm_rows": {
+          "tile": [
+            4,
+            0
+          ],
+          "source_row": 3
+        },
+        "parking_lot": {
+          "tile": [
+            5,
+            0
+          ],
+          "source_row": 3
+        },
+        "dark_asphalt": {
+          "tile": [
+            6,
+            0
+          ],
+          "source_row": 3
+        },
+        "island_stone": {
+          "tile": [
+            7,
+            0
+          ],
+          "source_row": 3
+        }
+      }
+    },
+    "road-atlas": {
+      "png": "road-atlas.png",
+      "bitmap": "../bitmap/road-atlas.json",
+      "cell_px": 64,
+      "atlas_grid": [
+        8,
+        4
+      ],
+      "tile_origin": "bottom-left, as used by shaders/tex.frag",
+      "sprites": {
+        "city_ns": {
+          "tile": [
+            0,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_ew": {
+          "tile": [
+            1,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_ne": {
+          "tile": [
+            2,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_nw": {
+          "tile": [
+            3,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_se": {
+          "tile": [
+            4,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_sw": {
+          "tile": [
+            5,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_cross": {
+          "tile": [
+            6,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_tee": {
+          "tile": [
+            7,
+            3
+          ],
+          "source_row": 0
+        },
+        "dirt_ns": {
+          "tile": [
+            0,
+            2
+          ],
+          "source_row": 1
+        },
+        "dirt_ew": {
+          "tile": [
+            1,
+            2
+          ],
+          "source_row": 1
+        },
+        "dirt_ne": {
+          "tile": [
+            2,
+            2
+          ],
+          "source_row": 1
+        },
+        "dirt_nw": {
+          "tile": [
+            3,
+            2
+          ],
+          "source_row": 1
+        },
+        "dirt_se": {
+          "tile": [
+            4,
+            2
+          ],
+          "source_row": 1
+        },
+        "dirt_sw": {
+          "tile": [
+            5,
+            2
+          ],
+          "source_row": 1
+        },
+        "dirt_cross": {
+          "tile": [
+            6,
+            2
+          ],
+          "source_row": 1
+        },
+        "dirt_tee": {
+          "tile": [
+            7,
+            2
+          ],
+          "source_row": 1
+        },
+        "ice_ns": {
+          "tile": [
+            0,
+            1
+          ],
+          "source_row": 2
+        },
+        "ice_ew": {
+          "tile": [
+            1,
+            1
+          ],
+          "source_row": 2
+        },
+        "ice_ne": {
+          "tile": [
+            2,
+            1
+          ],
+          "source_row": 2
+        },
+        "ice_nw": {
+          "tile": [
+            3,
+            1
+          ],
+          "source_row": 2
+        },
+        "ice_se": {
+          "tile": [
+            4,
+            1
+          ],
+          "source_row": 2
+        },
+        "ice_sw": {
+          "tile": [
+            5,
+            1
+          ],
+          "source_row": 2
+        },
+        "ice_cross": {
+          "tile": [
+            6,
+            1
+          ],
+          "source_row": 2
+        },
+        "ice_tee": {
+          "tile": [
+            7,
+            1
+          ],
+          "source_row": 2
+        },
+        "city_t_nsw": {
+          "tile": [
+            0,
+            0
+          ],
+          "source_row": 3
+        },
+        "city_t_new": {
+          "tile": [
+            1,
+            0
+          ],
+          "source_row": 3
+        },
+        "city_t_sew": {
+          "tile": [
+            2,
+            0
+          ],
+          "source_row": 3
+        },
+        "city_start": {
+          "tile": [
+            3,
+            0
+          ],
+          "source_row": 3
+        },
+        "city_finish": {
+          "tile": [
+            4,
+            0
+          ],
+          "source_row": 3
+        },
+        "city_crosswalk": {
+          "tile": [
+            5,
+            0
+          ],
+          "source_row": 3
+        },
+        "city_parking": {
+          "tile": [
+            6,
+            0
+          ],
+          "source_row": 3
+        },
+        "rural_start": {
+          "tile": [
+            7,
+            0
+          ],
+          "source_row": 3
+        }
+      }
+    },
+    "vehicle-atlas": {
+      "png": "vehicle-atlas.png",
+      "bitmap": "../bitmap/vehicle-atlas.json",
+      "cell_px": 64,
+      "atlas_grid": [
+        8,
+        3
+      ],
+      "tile_origin": "bottom-left, as used by shaders/tex.frag",
+      "sprites": {
+        "traffic_red": {
+          "tile": [
+            0,
+            2
+          ],
+          "source_row": 0
+        },
+        "traffic_blue": {
+          "tile": [
+            1,
+            2
+          ],
+          "source_row": 0
+        },
+        "traffic_green": {
+          "tile": [
+            2,
+            2
+          ],
+          "source_row": 0
+        },
+        "traffic_white": {
+          "tile": [
+            3,
+            2
+          ],
+          "source_row": 0
+        },
+        "traffic_gray": {
+          "tile": [
+            4,
+            2
+          ],
+          "source_row": 0
+        },
+        "traffic_yellow": {
+          "tile": [
+            5,
+            2
+          ],
+          "source_row": 0
+        },
+        "traffic_taxi": {
+          "tile": [
+            6,
+            2
+          ],
+          "source_row": 0
+        },
+        "traffic_van": {
+          "tile": [
+            7,
+            2
+          ],
+          "source_row": 0
+        },
+        "racer_player": {
+          "tile": [
+            0,
+            1
+          ],
+          "source_row": 1
+        },
+        "racer_cyan": {
+          "tile": [
+            1,
+            1
+          ],
+          "source_row": 1
+        },
+        "racer_yellow": {
+          "tile": [
+            2,
+            1
+          ],
+          "source_row": 1
+        },
+        "racer_purple": {
+          "tile": [
+            3,
+            1
+          ],
+          "source_row": 1
+        },
+        "racer_orange": {
+          "tile": [
+            4,
+            1
+          ],
+          "source_row": 1
+        },
+        "racer_lime": {
+          "tile": [
+            5,
+            1
+          ],
+          "source_row": 1
+        },
+        "racer_blue": {
+          "tile": [
+            6,
+            1
+          ],
+          "source_row": 1
+        },
+        "racer_black": {
+          "tile": [
+            7,
+            1
+          ],
+          "source_row": 1
+        },
+        "traffic_pickup": {
+          "tile": [
+            0,
+            0
+          ],
+          "source_row": 2
+        },
+        "traffic_delivery": {
+          "tile": [
+            1,
+            0
+          ],
+          "source_row": 2
+        },
+        "traffic_bus": {
+          "tile": [
+            2,
+            0
+          ],
+          "source_row": 2
+        },
+        "traffic_police": {
+          "tile": [
+            3,
+            0
+          ],
+          "source_row": 2
+        },
+        "traffic_suv": {
+          "tile": [
+            4,
+            0
+          ],
+          "source_row": 2
+        },
+        "traffic_wagon": {
+          "tile": [
+            5,
+            0
+          ],
+          "source_row": 2
+        },
+        "traffic_compact": {
+          "tile": [
+            6,
+            0
+          ],
+          "source_row": 2
+        },
+        "traffic_service": {
+          "tile": [
+            7,
+            0
+          ],
+          "source_row": 2
+        }
+      }
+    },
+    "structure-atlas": {
+      "png": "structure-atlas.png",
+      "bitmap": "../bitmap/structure-atlas.json",
+      "cell_px": 96,
+      "atlas_grid": [
+        4,
+        4
+      ],
+      "tile_origin": "bottom-left, as used by shaders/tex.frag",
+      "sprites": {
+        "city_apartment_red": {
+          "tile": [
+            0,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_apartment_blue": {
+          "tile": [
+            1,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_office_tower": {
+          "tile": [
+            2,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_office_low": {
+          "tile": [
+            3,
+            3
+          ],
+          "source_row": 0
+        },
+        "city_shop_red": {
+          "tile": [
+            0,
+            2
+          ],
+          "source_row": 1
+        },
+        "city_shop_blue": {
+          "tile": [
+            1,
+            2
+          ],
+          "source_row": 1
+        },
+        "city_warehouse": {
+          "tile": [
+            2,
+            2
+          ],
+          "source_row": 1
+        },
+        "city_parking_deck": {
+          "tile": [
+            3,
+            2
+          ],
+          "source_row": 1
+        },
+        "center_city": {
+          "tile": [
+            0,
+            1
+          ],
+          "source_row": 2
+        },
+        "center_jungle": {
+          "tile": [
+            1,
+            1
+          ],
+          "source_row": 2
+        },
+        "center_desert": {
+          "tile": [
+            2,
+            1
+          ],
+          "source_row": 2
+        },
+        "center_snow": {
+          "tile": [
+            3,
+            1
+          ],
+          "source_row": 2
+        },
+        "center_rural": {
+          "tile": [
+            0,
+            0
+          ],
+          "source_row": 3
+        },
+        "center_island": {
+          "tile": [
+            1,
+            0
+          ],
+          "source_row": 3
+        },
+        "rural_barn": {
+          "tile": [
+            2,
+            0
+          ],
+          "source_row": 3
+        },
+        "beach_ferry_dock": {
+          "tile": [
+            3,
+            0
+          ],
+          "source_row": 3
+        }
+      }
+    },
+    "prop-atlas": {
+      "png": "prop-atlas.png",
+      "bitmap": "../bitmap/prop-atlas.json",
+      "cell_px": 64,
+      "atlas_grid": [
+        8,
+        4
+      ],
+      "tile_origin": "bottom-left, as used by shaders/tex.frag",
+      "sprites": {
+        "jungle_tree_a": {
+          "tile": [
+            0,
+            3
+          ],
+          "source_row": 0
+        },
+        "jungle_tree_b": {
+          "tile": [
+            1,
+            3
+          ],
+          "source_row": 0
+        },
+        "jungle_tree_c": {
+          "tile": [
+            2,
+            3
+          ],
+          "source_row": 0
+        },
+        "jungle_tree_d": {
+          "tile": [
+            3,
+            3
+          ],
+          "source_row": 0
+        },
+        "pine_a": {
+          "tile": [
+            4,
+            3
+          ],
+          "source_row": 0
+        },
+        "pine_b": {
+          "tile": [
+            5,
+            3
+          ],
+          "source_row": 0
+        },
+        "pine_c": {
+          "tile": [
+            6,
+            3
+          ],
+          "source_row": 0
+        },
+        "pine_d": {
+          "tile": [
+            7,
+            3
+          ],
+          "source_row": 0
+        },
+        "palm_a": {
+          "tile": [
+            0,
+            2
+          ],
+          "source_row": 1
+        },
+        "palm_b": {
+          "tile": [
+            1,
+            2
+          ],
+          "source_row": 1
+        },
+        "palm_c": {
+          "tile": [
+            2,
+            2
+          ],
+          "source_row": 1
+        },
+        "cactus_a": {
+          "tile": [
+            3,
+            2
+          ],
+          "source_row": 1
+        },
+        "cactus_b": {
+          "tile": [
+            4,
+            2
+          ],
+          "source_row": 1
+        },
+        "cactus_c": {
+          "tile": [
+            5,
+            2
+          ],
+          "source_row": 1
+        },
+        "rock_desert_a": {
+          "tile": [
+            6,
+            2
+          ],
+          "source_row": 1
+        },
+        "rock_desert_b": {
+          "tile": [
+            7,
+            2
+          ],
+          "source_row": 1
+        },
+        "rock_snow_a": {
+          "tile": [
+            0,
+            1
+          ],
+          "source_row": 2
+        },
+        "rock_snow_b": {
+          "tile": [
+            1,
+            1
+          ],
+          "source_row": 2
+        },
+        "bush_green": {
+          "tile": [
+            2,
+            1
+          ],
+          "source_row": 2
+        },
+        "bush_dry": {
+          "tile": [
+            3,
+            1
+          ],
+          "source_row": 2
+        },
+        "hay_a": {
+          "tile": [
+            4,
+            1
+          ],
+          "source_row": 2
+        },
+        "hay_b": {
+          "tile": [
+            5,
+            1
+          ],
+          "source_row": 2
+        },
+        "farm_fence": {
+          "tile": [
+            6,
+            1
+          ],
+          "source_row": 2
+        },
+        "snow_marker": {
+          "tile": [
+            7,
+            1
+          ],
+          "source_row": 2
+        },
+        "race_checkpoint": {
+          "tile": [
+            0,
+            0
+          ],
+          "source_row": 3
+        },
+        "race_start": {
+          "tile": [
+            1,
+            0
+          ],
+          "source_row": 3
+        },
+        "race_finish": {
+          "tile": [
+            2,
+            0
+          ],
+          "source_row": 3
+        },
+        "traffic_light": {
+          "tile": [
+            3,
+            0
+          ],
+          "source_row": 3
+        },
+        "street_lamp": {
+          "tile": [
+            4,
+            0
+          ],
+          "source_row": 3
+        },
+        "barrier": {
+          "tile": [
+            5,
+            0
+          ],
+          "source_row": 3
+        },
+        "cone": {
+          "tile": [
+            6,
+            0
+          ],
+          "source_row": 3
+        },
+        "buoy": {
+          "tile": [
+            7,
+            0
+          ],
+          "source_row": 3
+        }
+      }
+    },
+    "people-atlas": {
+      "png": "people-atlas.png",
+      "bitmap": "../bitmap/people-atlas.json",
+      "cell_px": 32,
+      "atlas_grid": [
+        4,
+        1
+      ],
+      "tile_origin": "bottom-left, as used by shaders/tex.frag",
+      "sprites": {
+        "player_idle": {
+          "tile": [
+            0,
+            0
+          ],
+          "source_row": 0
+        },
+        "player_walk_a": {
+          "tile": [
+            1,
+            0
+          ],
+          "source_row": 0
+        },
+        "player_walk_b": {
+          "tile": [
+            2,
+            0
+          ],
+          "source_row": 0
+        }
+      }
+    }
+  }
+}

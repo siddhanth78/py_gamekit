@@ -40,8 +40,12 @@ game-asset task is the bootstrap command required by those skills.
 - Authorization does not carry into a later task after the user returns to
   planning or changes the subject. Require **"build"** or **"building"** again
   before resuming game implementation.
-- Bootstrap remains the sole permitted filesystem change during planning, as
-  required by the game-builder skill.
+- During planning, bootstrap and `<project-root>/plan.txt` are the only
+  permitted filesystem changes. Create or update that plan as decisions are
+  made; it records intent but never grants implementation authorization.
+- Before an authorized build, read the active project's `plan.txt` and
+  reconcile it with the user's current request. Implement only the authorized
+  scope, then update the plan's progress and remaining work.
 - A direct instruction to **bundle**, **package**, **export**, or **ship** a
   game is a packaging operation rather than game implementation. It authorizes
   the dependency installation, marker refresh, bundler execution, and `dist/`
@@ -77,7 +81,7 @@ game-asset task is the bootstrap command required by those skills.
   Bootstrap refreshes it and excludes caches, virtual environments, compiled
   Python files, and operating-system metadata.
 - `<project-root>/` contains all game-specific source code, tests, bitmap JSON,
-  generated assets, and supporting modules.
+  generated assets, supporting modules, and `plan.txt`.
 - `gl_utils.py`, `shaders/`, and `png_generator.py` are shared toolkit
   components. Treat them as read-only during ordinary game work unless the user
   explicitly requests a toolkit or engine change.
