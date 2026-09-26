@@ -25,7 +25,6 @@ TYPES = ("delivery", "speed", "drag")
 # The "speed" key is the time trial (it was once called the speed check); saves use the key.
 TITLES = {"delivery": "Delivery", "speed": "Time Trial", "drag": "Drag Race"}
 BASE_REWARD = {"delivery": 2, "speed": 1, "drag": 3}
-TRADE_REGION = "jungle"   # Fish traders live in the jungle camps and pay jungle mastery.
 MAX_SCALE = 1.25
 DRAG_RATING_GAP = (-10, 15)   # Drag rivals: rated this far from the player's rating when offered.
 STRAIGHT_RATING_GAP = (-10, 10)  # Straights have no corners: above +10 not even an off-day wins.
@@ -146,6 +145,9 @@ class Missions:
         data = data if isinstance(data, dict) else {}
         self.progress = Progress(data.get("progress"))
         self.fish = FishLog(data.get("fish"))
+        # Universal mastery from traded fish, spent on any region whenever the player likes.
+        unspent = data.get("unspent_mastery")
+        self.unspent = unspent if type(unspent) is int and unspent >= 0 else 0
         self.counter = data.get("counter") if type(data.get("counter")) is int else 0
         self.givers = self._place_givers()
         self.by_id = {g.id: g for g in self.givers}
@@ -478,10 +480,11 @@ class Missions:
                            else "busy" if self.active else "ready"),
             })
         rows.append({
-            # Fishing: the bag and every fish caught; travel opens with fishing (level 4).
-            "region": "beach", "kind": "beach", "bag": self.fish.count, "bag_value": self.fish.value,
-            "caught": dict(self.fish.caught), "unlock": f"Lvl {FISHING_LEVEL}",
-            "travel": ("locked" if not self.progress.fishing_unlocked() else "here" if here == "beach"
+            # The beach has no mastery: just fast travel to a pier, open with fishing (level 4).
+            # There is no "here": travel picks a pier, and another pier may be far along the coast.
+            "region": "beach", "kind": "beach", "unlock": f"Lvl {FISHING_LEVEL}",
+            "unspent": self.unspent,
+            "travel": ("locked" if not self.progress.fishing_unlocked()
                        else "busy" if self.active else "ready"),
         })
         return rows
@@ -498,10 +501,19 @@ class Missions:
         # The ongoing mission is deliberately absent: its offer stays with its giver.
         return {"progress": self.progress.to_dict(), "counter": self.counter,
                 "offers": {gid: offer.to_dict() for gid, offer in self.offers.items()},
-                "fish": self.fish.to_dict()}
+                "fish": self.fish.to_dict(), "unspent_mastery": self.unspent}
 
     def trade_fish(self):
-        """Hand the whole bag to a jungle fish trader: returns (fish, mastery, level-ups)."""
+        """Hand the whole bag to a jungle fish trader: returns (fish, points). The points
+        join the unspent pool; spend() puts them into regions."""
         count, value = self.fish.take_bag()
-        levels = self.progress.add(TRADE_REGION, value) if value else []
-        return count, value, levels
+        self.unspent += value
+        return count, value
+
+    def spend(self, region: str, amount: int = 1) -> list[int]:
+        """Put up to amount unspent points into a region; returns the levels reached."""
+        amount = min(amount, self.unspent)
+        if amount <= 0 or region not in REGIONS:
+            return []
+        self.unspent -= amount
+        return self.progress.add(region, amount)

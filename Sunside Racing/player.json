@@ -2,25 +2,25 @@
   "version": 3,
   "mode": "drive",
   "car": {
-    "x": 12027.070793758185,
-    "y": 13730.2998891195,
-    "heading": 285.17477019230745
+    "x": 10971.493039909263,
+    "y": 15326.38670534967,
+    "heading": 94.72208130708422
   },
   "missions": {
     "progress": {
       "city": {
-        "level": 3,
-        "mastery": 22,
+        "level": 4,
+        "mastery": 1,
         "completed": {
           "delivery": 4,
-          "speed": 7,
-          "drag": 9
+          "speed": 8,
+          "drag": 11
         },
         "races": 4
       },
       "jungle": {
         "level": 1,
-        "mastery": 0,
+        "mastery": 1,
         "completed": {
           "delivery": 0,
           "speed": 0,
@@ -30,7 +30,7 @@
       },
       "desert": {
         "level": 1,
-        "mastery": 0,
+        "mastery": 1,
         "completed": {
           "delivery": 0,
           "speed": 0,
@@ -40,7 +40,7 @@
       },
       "snow": {
         "level": 1,
-        "mastery": 0,
+        "mastery": 1,
         "completed": {
           "delivery": 0,
           "speed": 0,
@@ -50,7 +50,7 @@
       },
       "rural": {
         "level": 1,
-        "mastery": 0,
+        "mastery": 1,
         "completed": {
           "delivery": 0,
           "speed": 0,
@@ -59,48 +59,8 @@
         "races": 0
       }
     },
-    "counter": 31,
+    "counter": 33,
     "offers": {
-      "city-speed": {
-        "type": "speed",
-        "scale": 0.7,
-        "target": [
-          15747.687054040622,
-          16835.218436435774
-        ],
-        "track": null,
-        "seed": 519442610,
-        "levels": {
-          "city": 3,
-          "jungle": 1,
-          "desert": 1,
-          "snow": 1,
-          "rural": 1
-        },
-        "rating": null,
-        "declines": 1
-      },
-      "city-drag": {
-        "type": "drag",
-        "scale": 1.0,
-        "target": null,
-        "track": {
-          "kind": "circuit",
-          "theme": "city",
-          "seed": 620861994,
-          "size": 5
-        },
-        "seed": 620861994,
-        "levels": {
-          "city": 3,
-          "jungle": 1,
-          "desert": 1,
-          "snow": 1,
-          "rural": 1
-        },
-        "rating": 134,
-        "declines": 0
-      },
       "city-delivery": {
         "type": "delivery",
         "scale": 0.833,
@@ -129,11 +89,12 @@
         "epic": 0
       },
       "caught": {
-        "common": 0,
-        "uncommon": 0,
+        "common": 3,
+        "uncommon": 1,
         "rare": 0,
         "epic": 0
       }
-    }
+    },
+    "unspent_mastery": 0
   }
 }

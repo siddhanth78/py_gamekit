@@ -928,6 +928,138 @@ Bumping the rival keeps momentum (2026-09-26)
   then builds again once the rival pulls away. Off the throttle, or into
   walls, the car still stops dead. Tested.
 
+Beach fishing (2026-09-26) - BUILT (see "Built" at the end of this section)
+- Already in code (commit "fishing setup"): fishing.py has the rules
+  (FishLog bag/caught, rarity odds, FishingSession cast -> wait -> hooked ->
+  timing strikes -> reel, trader spots at jungle camps, beach fast-travel
+  landing by the nearest pier). world.py places three piers (west, north,
+  east) and draws pier tiles; people can walk on them (can_walk). missions.py
+  saves the fish log, trade_fish pays jungle mastery, and the menu lists a
+  beach row. progression.FISHING_LEVEL = 4 unlocks it.
+- Missing: art and the wiring into main.py. Nothing calls FishingSession,
+  fishing_spot, trader_near, trader_sprites, beach_destination, or
+  trade_fish yet.
+- Current breakages to fix first:
+  - terrain-atlas has no pier_planks / pier_end, so drawing a beach sector
+    with a pier raises KeyError in GameState._tile.
+  - The menu's beach travel goes through main._fast_travel -> destination
+    -> region_anchor, which has no center_beach (StopIteration). It should
+    call fishing.beach_destination instead.
+- Assets needed (asset_sources.py -> bitmap JSON -> png_generator):
+  - terrain-atlas: pier_planks (drawn north-south, rotated 90 for east/west),
+    pier_end (posts on the sea side, rotated by END_FACING). The atlas grid
+    is full (8 x 4 = 32 tiles), so it grows to 8 x 5.
+  - people-atlas: player_fish_cast, player_fish_hold, player_fish_reel
+    (player with a rod pointing north; tip ~14 px ahead, 6 px right to match
+    ROD_REACH), fish_trader (jungle outfit plus an apron or a fish basket),
+    fishing_bobber, fishing_bobber_bite (with ripple rings), fish_common,
+    fish_uncommon, fish_rare, fish_epic (bigger and brighter by rarity;
+    epic gold).
+- Mechanics to wire (main.py plus an overlay panel):
+  - On foot at a pier's end (fishing_spot) with fishing unlocked: prompt
+    "E to fish". E starts a FishingSession; E recasts after a catch or escape.
+  - While fishing: walker pose from session.pose(), session.sprites() drawn,
+    the fishing line drawn as a line (build_line_obj) from rod tip to bobber,
+    a strike bar (rect instances: bar, green zone, marker) during strikes.
+    Space (confirm) calls session.press(). Moving stops fishing.
+  - A catch updates missions.fish and autosaves.
+  - Jungle camps: trader_sprites drawn; near one (trader_near), E trades the
+    bag (missions.trade_fish) and shows fish, mastery, and level-ups.
+  - Menu beach travel -> beach_destination.
+- Tests: FishLog round trip and trade, roll odds, session phase flow
+  (hit / miss / timeout), press timing against the zone, beach landing is on
+  sand and clear, and real-key flows for fishing and trading.
+- Agreed (user): fish colors by rarity: common grey, uncommon blue, rare
+  purple, epic bright yellow. Below FISHING_LEVEL, the end of a pier shows
+  "Fishing opens at level 4" instead of the E prompt.
+- Proposed, not confirmed: the fish trader wears jungle clothes and carries a
+  fish basket.
+- Agreed (user): every trader has a floating fishing badge above it
+  (new marker-atlas icon_fishing, same badge style as the mission icons).
+  The trade is level-gated like fishing: any region at FISHING_LEVEL (4).
+  Below that, approaching a trader shows a notice that fishing and trading
+  open at level 4 in any region; no trade happens.
+- Agreed (user): traded fish pay UNIVERSAL mastery, not jungle mastery.
+  The player chooses which region each point goes to, in a separate
+  mastery-allocation menu. This replaces TRADE_REGION = "jungle".
+- Agreed (user): unspent universal points are kept indefinitely and can be
+  spent whenever the player likes, from the pause/mastery menu
+  ("Allocate N points"). The allocation menu also opens right after a trade.
+- Agreed (user): player.json tracks both unspent points and the fish in the
+  inventory. Save layout, inside the existing "missions" block that
+  player_save.py already writes:
+    "fish": {"bag": {common, uncommon, rare, epic},     <- inventory
+             "caught": {...}}                           <- lifetime totals
+    "unspent_mastery": N                                <- universal pool
+  "fish" is already saved today (FishLog.to_dict); "unspent_mastery" is new.
+  Older saves without it load 0. Autosave after every catch, trade, and
+  point spent.
+- Proposed, not confirmed (allocation menu details): one row per region
+  (city, jungle, desert, snow, rural) with level and mastery bar; arrows pick
+  the region, Space/Enter adds 1 point, a +5 option adds faster, Escape
+  closes and keeps the rest. Each point goes through Progress.add(region, 1),
+  so level-ups show as usual.
+- Built (2026-09-26):
+  - Art (asset_sources.py -> bitmap JSON -> png_generator): terrain-atlas grew
+    to 8 x 5 with pier_planks and pier_end; marker-atlas grew to 4 x 3 with
+    icon_fishing (mission-badge style, blue fish on a hook); people-atlas
+    gained fish_trader (idle/walk; straw hat, green shirt, fish basket),
+    player_fish_cast/hold/reel, fishing_bobber(_bite), fish_common (grey),
+    fish_uncommon (blue), fish_rare (purple), fish_epic (bright yellow with
+    sparkles), and fishing_line (a solid cell stretched into the line).
+  - Both crashes fixed: piers draw, and menu beach travel uses
+    fishing.beach_destination.
+  - main.py: E at a pier's end fishes (level-4 gate and mission check), E
+    casts again, SPACE strikes, moving/R/T put the rod away. Catches
+    autosave. Traders stand at every jungle camp with a bobbing
+    icon_fishing badge; the prompt reads "Trading opens at level 4" below
+    level 4 and E explains; at level 4 E trades the bag and opens the spend
+    menu.
+  - fishing_ui.py: StrikeBar (rarity header, green zone, marker, strike
+    pips) and SpendMenu (+1 / +5 per region, DONE; Escape keeps the rest).
+  - missions.py: TRADE_REGION removed; unspent pool, trade_fish -> (fish,
+    points), spend(region, n). Saved as missions.unspent_mastery.
+  - pause_menu.py: Mastery page has a Beach row (bag, catches, unspent
+    points, beach travel, fishing unlock) and a SPEND POINTS button when
+    points are unspent. Help lists fishing on E and SPACE.
+  - Tests: test_fishing.py (14) and 4 real-key flows in test_game_flows.py.
+    Full suite: 138 passing.
+- Beach travel with a pier picker (user request, built 2026-09-26):
+  - Supersedes the Beach row described above. The Mastery page's Beach row
+    has no mastery, bag, or catch columns: only a TRAVEL button (Lvl 4 until
+    any region reaches level 4; Busy during a mission). There is no "Here":
+    another pier can be far along the coast.
+  - TRAVEL opens a "CHOOSE A PIER" page (WEST / NORTH / EAST PIER, BACK;
+    Escape or BACK returns to the table with Beach TRAVEL selected).
+    Choosing a pier parks the car on clear sand beside that pier, facing
+    inland (fishing.beach_destination(..., dock=name)).
+  - Only people can walk out on the planks; cars cannot drive onto piers.
+  - Unspent points are still spent from the SPEND POINTS button, which
+    appears on the Mastery page when any are unspent.
+  - Tests: travel lands by each named pier, piers are walkable but not
+    drivable, the Beach row has no mastery, and a real-key flow through
+    Pause > Mastery > Beach TRAVEL > EAST PIER. Full suite: 141 passing.
+- Pier tiers (user request, built 2026-09-26). Piers are numbered in
+  world.DOCK_SITES order (fishing.PIERS):
+  - Pier 1 (west): any region at level 4. Odds common 75%, uncommon 20%,
+    rare 4.5%, epic 0.5%. "Mostly common fish".
+  - Pier 2 (north): at least 3 regions at level 7. Odds common 40%,
+    uncommon 45%, rare 14%, epic 1%. "More uncommon fish".
+  - Pier 3 (east): every region at level 12. Odds common 25%, uncommon 35%,
+    rare 37%, epic 3%. "More rare fish, more epics".
+  - The odds are my proposal; the user set only which fish each pier favors.
+  - Beach TRAVEL still opens once pier 1 does. The pier picker shows
+    "PIER n · NAME" with the catch line when open, or the requirement in red
+    when locked; locked piers can't be chosen.
+  - At a locked pier's end the prompt shows the requirement (e.g. "Needs
+    every region at level 12"), and E opens "Pier n · Name" with "<requirement>
+    to fish here." Traders still open at level 4 in any region.
+  - Tests: odds sum to 1 and lean the right way, rolled frequencies match,
+    unlock rules at the boundaries, sessions use their pier's odds, and
+    real-key flows for the picker and a locked pier. Full suite: 145 passing.
+- Remaining / ideas, not agreed: fishing sound, a fish collection page,
+  island piers, showing the unspent point count on the Mastery page.
+
 Technical basis
 - Keep game-specific code in this marked project. Adapt game_state.py,
   input_handler.py, and collision_manager.py and compose them from main.py.
@@ -939,3 +1071,19 @@ Technical basis
   collision_manager.py; player_save.py and world_save.py handle persistence. The active renderer
   batches instances by atlas and streams camera-relative records through the
   documented GL helpers.
+
+Zoom shimmer fix (2026-09-26, built)
+- User report: "screen tearing" when getting in and out of the car. Measured:
+  vsync works (16.67 ms flips), no gaps between tiles at any zoom, ~3 ms
+  frames. The cause was the zoom easing: an exponential approach spent ~43
+  frames at in-between scales (NEAREST pixel art shimmers there), crept for
+  ~20 frames at 1.95-1.99, then snapped to 2.0, changing 12% of the screen
+  in one frame.
+- Now: main.eased_zoom, an ease-out cubic over ZOOM_TIME = 0.3 s that lands
+  exactly on 1.0 or 2.0 (17 frames; the last frame changes 0.6% of the
+  screen). Getting back in mid-zoom eases from the current zoom. Loading,
+  travel, races, and returns use Game._snap_zoom to jump straight there.
+- Rejected by the user: drawing the world off-screen and scaling it smoothly
+  (too much load). Some shimmer while the zoom is moving is expected.
+- Tests: the ease's shape and exact landing, get out/in timing with no
+  creep, turning around mid-zoom, travel snapping mid-ease. 148 passing.

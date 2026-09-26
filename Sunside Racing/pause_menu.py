@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import moderngl
 
+from fishing import PIER_CATCH, PIERS, pier_requirement
+from world import DOCK_SITES
 from gl_utils import build_rect_objs, build_tex_objs, check_mouse_collisions, get_new_instances, load_program, to_gl
 from ui_text import DynamicLabel, LabelAtlas
 
@@ -14,9 +16,9 @@ CONTROLS = (
     ("W  /  UP", "Accelerate  ·  walk north"),
     ("S  /  DOWN", "Brake, reverse  ·  walk south"),
     ("A  D  /  LEFT  RIGHT", "Steer  ·  walk west, east"),
-    ("SPACE", "Handbrake"),
+    ("SPACE", "Handbrake  ·  strike a hooked fish"),
     ("SHIFT", "Run while on foot"),
-    ("E", "Get in/out  ·  givers and racing centers"),
+    ("E", "Get in/out  ·  talk  ·  fish  ·  trade"),
     ("Q", "Call your car (on foot)"),
     ("T", "Travel to or from Elite Island"),
     ("R", "Unstick yourself nearby"),
@@ -33,12 +35,18 @@ LABELS = {
     "help": ("HELP", 36, True, "center"),
     "exit": ("EXIT", 36, True, "center"),
     "back": ("BACK", 36, True, "center"),
+    "spend": ("SPEND POINTS", 32, True, "center"),
+    "docks_title": ("CHOOSE A PIER", 52, True, "center"),
+    **{f"dock:{name}": (f"PIER {PIERS[name][0]}  ·  {name.upper()}", 30, True, "center")
+       for name, _, _ in DOCK_SITES},
     "hint": ("W/S or arrows to choose  ·  Enter to confirm  ·  Esc to resume", 20, False, "center"),
     "goal": ("Follow the yellow arrow to each region's racing center.", 24, False, "center"),
     **{f"key{i}": (key, 28, True, "left") for i, (key, _) in enumerate(CONTROLS)},
     **{f"act{i}": (action, 28, False, "left") for i, (_, action) in enumerate(CONTROLS)},
 }
-PAGES = {"main": ("resume", "mastery", "help", "exit"), "help": ("back",), "mastery": ("back",)}
+PAGES = {"main": ("resume", "mastery", "help", "exit"), "help": ("back",), "mastery": ("back",),
+         # Beach travel: pick the pier the car parks beside.
+         "docks": tuple(f"dock:{name}" for name, _, _ in DOCK_SITES) + ("back",)}
 
 INK = (32, 45, 52)
 ACCENT = (242, 202, 87)
@@ -50,7 +58,7 @@ BUTTON_EDGE = (78, 104, 112, 255)
 KEY_CAP = (44, 66, 76, 255)
 SHADOW = (8, 14, 18, 150)
 
-PANEL_SIZE = {"main": (480, 560), "help": (720, 700), "mastery": (1180, 640)}
+PANEL_SIZE = {"main": (480, 560), "help": (720, 700), "mastery": (1180, 640), "docks": (480, 560)}
 # Mastery table: (header, x offset from the panel's left edge).
 # Mastery table: (header, x offset from the panel's left edge). Unlocks read in level
 # order: fast travel (level 3) before veteran givers (level 5).
@@ -62,8 +70,11 @@ PROGRESS_COL, CENTER_COL, TRAVEL_COL, VETERANS_COL = 2, 3, 7, 8
 BAR_WIDTH = 150
 TRAVEL_BUTTON = (84, 36)
 TRAVEL_TEXT = {"ready": "TRAVEL", "here": "Here", "busy": "Busy", "locked": "Lvl 3"}
-MASTERY_ROW_GAP = 64
+MASTERY_ROW_GAP = 54
+MASTERY_FIRST_ROW = 226    # Row centers from the panel's top; the sixth row is the beach.
+MASTERY_BUTTONS_Y = 598    # SPEND POINTS and BACK.
 GOOD = (120, 200, 130)
+LOCKED = (226, 120, 100)
 BUTTON_SIZE = (312, 64)
 BUTTON_GAP = 84
 ROW_GAP = 34
@@ -103,9 +114,13 @@ class PauseMenu:
         self.cells = [[DynamicLabel(ctx, (w, 30), 30 if c == 1 else 22,
                                     bold=c in (0, 1, TRAVEL_COL, VETERANS_COL),
                                     align="center" if c == TRAVEL_COL else "left")
-                       for c, w in enumerate(COLUMN_WIDTHS)] for _ in range(5)]
+                       for c, w in enumerate(COLUMN_WIDTHS)] for _ in range(6)]
+        # Under each pier button: its catch, or what it needs while locked.
+        self.docks = {name: False for name, _, _ in DOCK_SITES}
+        self.dock_notes = {name: DynamicLabel(ctx, (300, 22), 18, bold=True, align="center")
+                           for name in self.docks}
         self.quads = {}
-        for label in self.headers + [self.footer] + [cell for row in self.cells for cell in row]:
+        for label in self.headers + [self.footer] + list(self.dock_notes.values()) + [cell for row in self.cells for cell in row]:
             instances = get_new_instances(0, 0, 1)[2]
             self.quads[id(label)] = (instances, *build_tex_objs(ctx, self.text_program, instances))
 
@@ -121,6 +136,13 @@ class PauseMenu:
             items = self.items
             self.selected = items.index(current) if current in items else len(items) - 1
         for cells, row in zip(self.cells, rows):
+            if row.get("kind") == "beach":
+                # No mastery on the beach: only its fast-travel button (open at level 4).
+                texts = ("Beach", "", "", "", "", "", "",
+                         TRAVEL_TEXT[row["travel"]] if row["travel"] != "locked" else row["unlock"], "")
+                for cell, text in zip(cells, texts):
+                    cell.set(text)
+                continue
             done = row["completed"]
             texts = (row["region"].title(), str(row["level"]), f"{row['mastery']} / {row['need']}",
                      f"{row['races']} / 10", str(row["rating"]),
@@ -130,12 +152,19 @@ class PauseMenu:
             for cell, text in zip(cells, texts):
                 cell.set(text)
 
+    def set_docks(self, docks):
+        """(pier name, open) pairs for the pier picker."""
+        for name, is_open in docks:
+            self.docks[name] = is_open
+            self.dock_notes[name].set(PIER_CATCH[name] if is_open else pier_requirement(name))
+
     @property
     def items(self):
         if self.page == "mastery":
-            # A travel button for each region the player can jump to, then Back.
+            # A travel button for each region the player can jump to, then Spend and Back.
+            spend = ("spend",) if any(row.get("unspent") for row in self.mastery_rows) else ()
             return tuple(f"travel:{row['region']}" for row in self.mastery_rows
-                         if row["travel"] == "ready") + ("back",)
+                         if row["travel"] == "ready") + spend + ("back",)
         if self.page == "main":
             # While a mission or race is under way, offer to abandon it under Resume.
             ongoing = {"mission": ("abort",), "race": ("quit_race",)}.get(
@@ -175,8 +204,10 @@ class PauseMenu:
             top = height // 2 - PANEL_SIZE["mastery"][1] // 2
             ready = [i for i, row in enumerate(self.mastery_rows) if row["travel"] == "ready"]
             x = left + MASTERY_COLUMNS[TRAVEL_COL][1] + TRAVEL_BUTTON[0] // 2
-            return [(x, top + 236 + i * MASTERY_ROW_GAP) for i in ready] + \
-                [(width // 2, height // 2 + 262)]
+            bottom = top + MASTERY_BUTTONS_Y
+            closing = ([(width // 2 - 180, bottom), (width // 2 + 180, bottom)]
+                       if "spend" in self.items else [(width // 2, bottom)])
+            return [(x, top + MASTERY_FIRST_ROW + i * MASTERY_ROW_GAP) for i in ready] + closing
         # Keep the column of buttons centered when an extra one is shown.
         first = height // 2 - 60 - BUTTON_GAP * (len(self.items) - len(PAGES["main"])) // 2
         return [(width // 2, first + i * BUTTON_GAP) for i in range(len(self.items))]
@@ -187,10 +218,18 @@ class PauseMenu:
                 for (x, y), size in zip(self._button_centers(), sizes)]
 
     def _choose(self, item):
-        """Pages change here; 'resume', 'exit', 'abort', 'quit_race', and 'travel:<region>'
-        go to the game."""
+        """Pages change here; 'resume', 'exit', 'abort', 'quit_race', 'spend',
+        'travel:<region>', and 'dock:<pier>' go to the game."""
         if item in ("help", "mastery"):
             self._show(item)
+        elif item == "travel:beach":
+            self._show("docks")
+        elif item.startswith("dock:") and not self.docks.get(item.split(":", 1)[1]):
+            return None   # Locked: its note says what it needs.
+        elif item == "back" and self.page == "docks":
+            self._show("mastery")
+            if "travel:beach" in self.items:
+                self.selected = self.items.index("travel:beach")
         elif item == "back":
             came_from = self.page
             self._show("main")
@@ -232,13 +271,16 @@ class PauseMenu:
             _rect(cx, top + 6, panel_w, 12, (*ACCENT, 255)),                     # Header stripe.
             _rect(cx, top + 136, 132, 4, (*ACCENT, 255)),                        # Title underline.
         ]
-        title = {"main": "paused", "help": "controls", "mastery": "mastery_title"}[self.page]
+        title = {"main": "paused", "help": "controls", "mastery": "mastery_title",
+                 "docks": "docks_title"}[self.page]
         texts = [self.labels.record(title, cx, top + 82, ACCENT)]
         cells = []
         if self.page == "main":
             texts.append(self.labels.record("hint", cx, cy + panel_h // 2 - 30, MUTED))
         elif self.page == "mastery":
             cells = self._mastery_table(rects, cx - panel_w // 2, top, panel_w)
+        elif self.page == "docks":
+            pass   # Each pier's note is added with its button below.
         else:
             key_left, action_left = cx - 320, cx - 50
             for i in range(len(CONTROLS)):
@@ -256,12 +298,22 @@ class PauseMenu:
                 rects.append(_rect(x, y, tw, th, (*ACCENT, 255) if chosen else BUTTON))
                 continue
             bw, bh = BUTTON_SIZE
+            dock = self.items[i].split(":", 1)[1] if self.items[i].startswith("dock:") else None
+            locked = dock is not None and not self.docks[dock]
+            face = (32, 46, 54, 255) if locked else (*ACCENT, 255) if chosen else BUTTON
             rects.append(_rect(x + 4, y + 5, bw, bh, SHADOW))
             rects.append(_rect(x, y, bw + 4, bh + 4, (*ACCENT, 255) if chosen else BUTTON_EDGE))
-            rects.append(_rect(x, y, bw, bh, (*ACCENT, 255) if chosen else BUTTON))
+            rects.append(_rect(x, y, bw, bh, face))
             if chosen:
-                rects.append(_rect(x - bw // 2 + 14, y, 6, bh - 24, (*INK, 255)))  # Selection tick.
-            texts.append(self.labels.record(self.items[i], x, y + 2, INK if chosen else CREAM))
+                rects.append(_rect(x - bw // 2 + 14, y, 6, bh - 24,
+                                   (*(ACCENT if locked else INK), 255)))  # Selection tick.
+            ink = MUTED if locked else INK if chosen else CREAM
+            if dock:
+                texts.append(self.labels.record(self.items[i], x, y - 8, ink))
+                note = self.dock_notes[dock]
+                cells.append((note, note.record(x, y + 19, LOCKED if locked else ink)))
+                continue
+            texts.append(self.labels.record(self.items[i], x, y + 2, ink))
 
         _, self.rect_instances = to_gl(rects, self.rect_instances, "rect")
         self.rect_vbo.write(self.rect_instances[:len(rects)].tobytes(), offset=0)
@@ -284,15 +336,23 @@ class PauseMenu:
     def _mastery_table(self, rects, left, top, panel_w):
         """Add the table's rects; return (label, record) pairs for its text."""
         cells = []
-        header_y = top + 178
+        header_y = top + 170
         for label, (_, x) in zip(self.headers, MASTERY_COLUMNS):
             cells.append((label, label.record(left + x, header_y, MUTED)))
         rects.append(_rect(left + panel_w // 2, header_y + 20, panel_w - 60, 2, (*MUTED, 120)))
         for i, (row, labels) in enumerate(zip(self.mastery_rows, self.cells)):
-            y = top + 236 + i * MASTERY_ROW_GAP
+            y = top + MASTERY_FIRST_ROW + i * MASTERY_ROW_GAP
             if i % 2 == 0:
                 rects.append(_rect(left + panel_w // 2, y, panel_w - 60, MASTERY_ROW_GAP - 6,
                                    (44, 66, 76, 120)))
+            if row.get("kind") == "beach":
+                chosen = self.items[self.selected] == "travel:beach"
+                travel = (INK if chosen else CREAM) if row["travel"] == "ready" else MUTED
+                colors = (CREAM, MUTED, MUTED, MUTED, MUTED, MUTED, MUTED, travel, MUTED)
+                for c, (label, (_, x), color) in enumerate(zip(labels, MASTERY_COLUMNS, colors)):
+                    x = left + x + (TRAVEL_BUTTON[0] // 2 if c == TRAVEL_COL else 0)
+                    cells.append((label, label.record(x, y + (1 if c == TRAVEL_COL else 0), color)))
+                continue
             # Progress bar toward the next level.
             bar_x = left + MASTERY_COLUMNS[PROGRESS_COL][1]
             fraction = min(1.0, row["mastery"] / row["need"])
@@ -313,5 +373,7 @@ class PauseMenu:
                 x = left + x + (TRAVEL_BUTTON[0] // 2 if c == TRAVEL_COL else 0)
                 cells.append((label, label.record(x, y + dy, color)))
         # Elite Island progress under the table.
-        cells.append((self.footer, self.footer.record(left + panel_w // 2, top + 532, MUTED)))
+        cells.append((self.footer, self.footer.record(left + panel_w // 2,
+                                                      top + MASTERY_FIRST_ROW + 6 * MASTERY_ROW_GAP - 10,
+                                                      MUTED)))
         return cells

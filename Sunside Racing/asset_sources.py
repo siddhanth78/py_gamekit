@@ -83,7 +83,7 @@ class Painter:
 
 
 def terrain() -> Atlas:
-    a = Atlas("terrain-atlas", 32, 8, 4)
+    a = Atlas("terrain-atlas", 32, 8, 5)
     tiles = [
         ("grass", "#4c9758", ("#66ab64", "#3d824c")),
         ("jungle_ground", "#285a3d", ("#39774b", "#204b35")),
@@ -140,7 +140,40 @@ def terrain() -> Atlas:
             if name == "shore_south": p.rect(0, 25, 32, 32, "#68bfca")
             if name == "shore_east": p.rect(25, 0, 32, 32, "#68bfca")
             if name == "shore_west": p.rect(0, 0, 7, 32, "#68bfca")
+    for i, name in enumerate(PIER_TILES):
+        pier_tile(a.tile(name, i, 4), name)
     return a
+
+
+PIER_TILES = ("pier_planks", "pier_end")
+
+
+def pier_tile(p: Painter, name: str):
+    """Fishing pier over shallow water, running north-south; the planks span 22 of 32 px
+    (world.PIER_HALF). pier_end has its posts and rail on the north (sea) side."""
+    p.rect(0, 0, 32, 32, "#3aadc0")                       # Water under the pier.
+    p.flecks(211 if name == "pier_end" else 207, 9, ("#74d2cf", "#298fae"))
+    p.rect(7, 0, 28, 32, "#24414a")                       # Shadow on the water.
+    top = 6 if name == "pier_end" else 0
+    p.rect(5, top, 27, 32, "#6b4a30")                     # Gaps between planks.
+    for y in range(top, 32, 4):                           # Boards laid across the walkway.
+        shade = ("#b08858", "#a07a4c", "#bc9464")[(y // 4) % 3]
+        p.rect(5, y, 27, min(32, y + 3), shade)
+        p.rect(5 + (y * 7) % 18, y + 1, 7 + (y * 7) % 18, y + 2, "#8a6440")  # Wood grain.
+    p.rect(5, top, 6, 32, "#7a5638")                      # Side beams.
+    p.rect(26, top, 27, 32, "#7a5638")
+    if name == "pier_planks":
+        for y in (2, 18):                                 # Posts down into the water.
+            p.rect(3, y, 6, y + 4, "#4f3a28")
+            p.rect(26, y, 29, y + 4, "#4f3a28")
+    else:
+        p.rect(4, 3, 28, 6, "#7a5638")                    # End rail.
+        p.rect(4, 3, 28, 4, "#9a7048")
+        for x in (2, 26):                                 # Corner posts, capped.
+            p.rect(x, 1, x + 4, 7, "#4f3a28")
+            p.rect(x + 1, 2, x + 3, 4, "#8a6440")
+        p.ellipse(22, 22, 2, 2, "#8a8f8f")                # Mooring cleat.
+        p.rect(20, 22, 25, 23, "#5d6366")
 
 
 def road(p: Painter, material: str, exits: str):
@@ -465,6 +498,16 @@ def person(p: Painter, frame: str, top: str, trim: str, head: str, head_color: s
     if extra == "backpack":
         p.rect(12, 18, 21, 25, trim)
         p.rect(13, 22, 20, 23, "#3d2e20")
+    elif extra == "basket":
+        p.rect(11, 20, 22, 27, "#8a6440")                 # Wicker fish basket on the back,
+        p.rect(12, 21, 21, 26, "#c9a070")
+        for x in (13, 16, 19):
+            p.rect(x, 21, x + 1, 26, "#8a6440")           # woven,
+        p.rect(12, 23, 21, 24, "#8a6440")
+        p.rect(13, 19, 16, 21, "#9aa3a8")                 # with tails poking out.
+        p.rect(17, 19, 20, 21, "#3f7fd0")
+        p.rect(14, 18, 15, 19, "#9aa3a8")
+        p.rect(18, 18, 19, 19, "#3f7fd0")
     elif extra == "overalls":
         p.rect(12, 16, 14, 21, trim)
         p.rect(18, 16, 20, 21, trim)
@@ -513,19 +556,126 @@ PEOPLE = (
     ("nomad_b", "#3f4f8a", "#d9cfb4", "wrap", "#e2d5b5", "#c9a24a", "robe", "#8d5a3b"),
     ("explorer_a", "#a89a64", "#6b4f35", "safari", "#c8b47a", "#6b4f35", "backpack", "#e2b48c"),
     ("explorer_b", "#6f7a45", "#6b4f35", "safari", "#b9a56a", "#4d3a28", "backpack", "#8d5a3b"),
+    ("fish_trader", "#4f8a55", "#e8dcc0", "wide", "#d9b75a", "#a8843a", "basket", "#8d5a3b"),
 )
 PERSON_FRAMES = ("idle", "walk_a", "walk_b")
 
 
+ROD, ROD_TIP, REEL = "#6b4a30", "#f4ead0", "#5d6366"
+
+
+def fishing_pose(p: Painter, pose: str):
+    """The player (facing north) with a rod; the tip rests 14 px ahead and 6 px right of
+    center, matching fishing.ROD_REACH."""
+    top, trim, head, head_color, accent, extra, skin = PEOPLE[0][1:]
+    person(p, "idle", top, trim, head, head_color, accent, extra, skin)
+    if pose == "cast":
+        # Rod swung back over the right shoulder, arm raised.
+        p.rect(20, 14, 24, 18, top)
+        p.rect(21, 13, 24, 15, skin)
+        for i in range(12):
+            p.rect(22 + i // 2, 14 + i, 23 + i // 2, 15 + i, ROD)
+        p.rect(28, 25, 29, 27, ROD_TIP)
+        return
+    # Both arms forward, hands on the rod and reel.
+    p.rect(9, 10, 12, 16, top)
+    p.rect(20, 10, 24, 16, top)
+    p.rect(10, 9, 12, 11, skin)
+    p.rect(21, 9, 24, 11, skin)
+    p.rect(19, 12, 22, 14, REEL)                          # Spinning reel.
+    if pose == "hold":
+        p.rect(22, 3, 23, 14, ROD)
+        p.rect(22, 1, 23, 3, ROD_TIP)
+    else:                                                 # "reel": the rod bends with the fish.
+        p.rect(22, 7, 23, 14, ROD)
+        p.dots([(23, 6), (23, 5), (24, 4), (24, 3)], ROD)
+        p.dots([(25, 2), (25, 1)], ROD_TIP)
+        p.dots([(18, 12), (18, 13)], "#c9453c")           # Reel handle spinning.
+
+
+def bobber(p: Painter, bite: bool):
+    """Red-and-white float seen from above; a bite pulls it under with ripples."""
+    ring = "#bfeaf0"
+    if bite:
+        for r in (14, 10):
+            p.ellipse(16, 17, r, r - 2, ring)
+            p.ellipse(16, 17, r - 1, r - 3, "#3aadc0")
+        p.dots([(4, 9), (27, 8), (6, 26), (26, 25), (16, 3)], "#ffffff")   # Splash.
+        p.ellipse(16, 17, 5, 4, "#1d2a30")
+        p.ellipse(16, 17, 4, 3, "#d9453f")                # Only the red top shows.
+        p.rect(15, 13, 17, 16, "#f4ead0")                 # Antenna tip.
+        return
+    p.ellipse(16, 17, 9, 8, ring)                         # Calm ripple ring.
+    p.ellipse(16, 17, 8, 7, "#3aadc0")
+    p.ellipse(16, 16, 6, 6, "#1d2a30")
+    p.ellipse(16, 16, 5, 5, "#f4ead0")                    # White body,
+    p.ellipse(16, 14, 4, 3, "#d9453f")                    # red cap,
+    p.rect(15, 9, 17, 14, "#1d2a30")                      # and antenna.
+    p.rect(15, 9, 17, 10, "#f2ca57")
+
+
+FISH_COLORS = {  # rarity -> back, body, belly, fin, size (half-length px)
+    "common": ("#6f7a80", "#9aa3a8", "#d5dbdc", "#5d6366", 9),
+    "uncommon": ("#1f4f9a", "#3f7fd0", "#9cc6ef", "#1f3f7a", 10),
+    "rare": ("#5f2a8f", "#9a55d0", "#d6b0f0", "#4a2070", 11),
+    "epic": ("#e0a010", "#ffd84a", "#fff4b0", "#f2892a", 12),
+}
+
+
+def fish(p: Painter, rarity: str):
+    """A fish seen from above, nose north (it hangs from the line by its mouth)."""
+    back, body, belly, fin, half = FISH_COLORS[rarity]
+    top, tail = 16 - half, 16 + half
+    p.ellipse(17, 17, 5, half, "#1d2a30")                 # Shadow.
+    p.ellipse(16, 15, 5, half - 2, body)
+    p.ellipse(16, 16, 3, half - 4, belly)                 # Pale belly shows either side.
+    p.rect(15, top + 1, 17, tail - 3, back)               # Dark stripe down the back.
+    p.rect(10, 14, 12, 18, fin)                           # Side fins.
+    p.rect(20, 14, 22, 18, fin)
+    p.rect(14, tail - 3, 18, tail - 1, body)              # Tail stem,
+    p.rect(12, tail - 1, 20, tail + 1, fin)               # tail fin.
+    p.rect(11, tail, 13, tail + 2, fin)
+    p.rect(19, tail, 21, tail + 2, fin)
+    p.dots([(14, top + 3), (18, top + 3)], "#1d2a30")     # Eyes.
+    if rarity in ("rare", "epic"):
+        p.rect(12, 12, 13, 20, belly)                     # Glossy flanks.
+        p.rect(19, 12, 20, 20, belly)
+    if rarity == "epic":                                  # Golden sparkle.
+        p.dots([(6, 6), (26, 9), (7, 25), (25, 26), (4, 16), (28, 18)], "#ffffff")
+        p.dots([(6, 5), (6, 7), (5, 6), (7, 6), (26, 8), (26, 10)], "#fff4b0")
+
+
+FISHING_SPRITES = ("player_fish_cast", "player_fish_hold", "player_fish_reel",
+                   "fishing_bobber", "fishing_bobber_bite", "fish_common", "fish_uncommon",
+                   "fish_rare", "fish_epic", "fishing_line")
+
+
+def fishing_sprite(p: Painter, name: str):
+    if name.startswith("player_fish_"):
+        fishing_pose(p, name.removeprefix("player_fish_"))
+    elif name.startswith("fishing_bobber"):
+        bobber(p, name.endswith("_bite"))
+    elif name.startswith("fish_"):
+        fish(p, name.removeprefix("fish_"))
+    elif name == "fishing_line":
+        p.rect(0, 0, 32, 32, "#eef2ee")                   # Solid: stretched thin as the line.
+
+
 def people() -> Atlas:
-    """Every kind gets idle and two walk frames; four kinds per 12-cell row."""
+    """Every kind gets idle and two walk frames; four kinds per 12-cell row. The fishing
+    sprites fill the cells after the last kind."""
     per_row = 4
-    rows = -(-len(PEOPLE) // per_row)
-    a = Atlas("people-atlas", 32, per_row * len(PERSON_FRAMES), rows)
+    columns = per_row * len(PERSON_FRAMES)
+    cells = len(PEOPLE) * len(PERSON_FRAMES) + len(FISHING_SPRITES)
+    rows = -(-cells // columns)
+    a = Atlas("people-atlas", 32, columns, rows)
     for i, (name, top, trim, head, head_color, accent, extra, skin) in enumerate(PEOPLE):
         for f, frame in enumerate(PERSON_FRAMES):
             person(a.tile(f"{name}_{frame}", (i % per_row) * len(PERSON_FRAMES) + f, i // per_row),
                    frame, top, trim, head, head_color, accent, extra, skin)
+    start = len(PEOPLE) * len(PERSON_FRAMES)
+    for i, name in enumerate(FISHING_SPRITES):
+        fishing_sprite(a.tile(name, (start + i) % columns, (start + i) // columns), name)
     return a
 
 
@@ -618,6 +768,18 @@ def marker(p: Painter, name: str):
         p.rect(10, 16, 22, 18, "#3f9a5a")
         p.rect(12, 18, 20, 20, "#3f9a5a")
         p.rect(14, 20, 18, 22, "#3f9a5a")
+    elif kind == "fishing":
+        p.dots([(6, 9), (6, 10), (7, 10), (7, 11), (8, 11), (8, 12),       # Fish on a hook:
+                (6, 17), (6, 16), (7, 16), (7, 15), (8, 15), (8, 14),      # forked tail,
+                (9, 12), (9, 13), (9, 14)], "#1f4f9a")
+        p.ellipse(16, 13, 6, 4, "#3f7fd0")                # body,
+        p.rect(12, 14, 20, 16, "#8cc0ea")                 # pale belly,
+        p.dots([(19, 12)], "#fff4d6")                     # and eye.
+        p.dots([(20, 12)], "#27353d")
+        p.rect(22, 7, 23, 13, "#27353d")                  # Line down to the hook in its mouth.
+        p.rect(22, 13, 23, 20, "#5d6366")
+        p.rect(18, 20, 23, 21, "#5d6366")
+        p.rect(18, 17, 19, 20, "#5d6366")
     elif kind == "finish":
         for i in range(4):
             for j in range(4):
@@ -626,11 +788,12 @@ def marker(p: Painter, name: str):
 
 
 MARKERS = ("icon_delivery", "icon_speed", "icon_drag", "icon_dropoff",
-           "icon_delivery_hard", "icon_speed_hard", "icon_drag_hard", "icon_finish")
+           "icon_delivery_hard", "icon_speed_hard", "icon_drag_hard", "icon_finish",
+           "icon_fishing")
 
 
 def markers() -> Atlas:
-    a = Atlas("marker-atlas", 32, 4, 2)
+    a = Atlas("marker-atlas", 32, 4, 3)
     for i, name in enumerate(MARKERS):
         marker(a.tile(name, i % 4, i // 4), name)
     return a

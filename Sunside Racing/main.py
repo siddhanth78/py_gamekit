@@ -18,6 +18,9 @@ from car import TOP_SPEED, Car
 from collision_manager import CollisionManager, nearest_clear_spot
 from drag_race import DragRace
 from fast_travel import destination, island_destination, on_island, on_mainland_beach
+from fishing import (FishingSession, beach_destination, fishing_spot, pier_open, pier_requirement,
+                     pier_title, trader_near, trader_sprites)
+from fishing_ui import SpendMenu, StrikeBar, level_up_line
 from game_state import GameState
 from hud import CenterArrow, Hud, compass
 from input_handler import InputHandler
@@ -25,7 +28,7 @@ from mission_ui import MissionPanel
 from missions import TITLES, Missions
 from parking import Parking
 from pedestrians import Pedestrians
-from progression import CENTER_RACES, ISLAND_LEVEL, REGIONS
+from progression import CENTER_RACES, FISHING_LEVEL, ISLAND_LEVEL, REGIONS
 from racers import LAPS, RIVAL_RATINGS, rival, track_size
 from pause_menu import PauseMenu
 from player_save import PlayerSave
@@ -39,7 +42,7 @@ WINDOW_SIZE = (1280, 720)
 TITLE = "Sunside Racing"
 DRIVE_ZOOM = 1.0
 WALK_ZOOM = 2.0     # On foot the camera zooms in so people read at 64 screen px.
-ZOOM_RATE = 6.0     # Higher is a faster zoom transition.
+ZOOM_TIME = 0.3     # Seconds to zoom in or out when getting out of or into the car.
 EXIT_SPEED = 15.0   # The car must be nearly stopped to get out.
 RACE_OVER_DELAY = 2.0  # Seconds a win's banner shows before returning (losses end at once).
 CENTER_TALK_RANGE = 130  # On foot, px from a racing center building to enter races.
@@ -54,6 +57,15 @@ def camera_position(target, width: float, height: float, zoom: float = 1.0,
     y = max(0.0, min(target.y - height / 2, bounds[1] - height))
     # Whole-screen-pixel camera keeps NEAREST-filtered tiles from shimmering.
     return round(x * zoom) / zoom, round(y * zoom) / zoom
+
+
+def eased_zoom(start: float, end: float, elapsed: float) -> float:
+    """Ease-out cubic from start to end over ZOOM_TIME, landing exactly on end.
+
+    NEAREST-filtered pixel art shimmers at in-between scales, so the zoom spends as
+    little time there as possible and never creeps toward (then snaps onto) its target."""
+    k = min(1.0, max(0.0, elapsed / ZOOM_TIME))
+    return end if k >= 1.0 else start + (end - start) * (1 - (1 - k) ** 3)
 
 
 def center_guide(car, center) -> str:
@@ -93,9 +105,12 @@ class Game:
         self.menu = PauseMenu(ctx, TOOLKIT_ROOT, viewport)
         self.panel = MissionPanel(ctx, TOOLKIT_ROOT, viewport)
         self.hud = Hud(ctx, TOOLKIT_ROOT, viewport, TOP_SPEED)
+        self.spend_menu = SpendMenu(ctx, TOOLKIT_ROOT, viewport)
+        self.strike_bar = StrikeBar(ctx, TOOLKIT_ROOT, viewport)
+        self.fishing: FishingSession | None = None   # On foot at a pier's end, rod out.
         self.player_id = self.state.spawn_player(self.car.x, self.car.y)
         self.walker_id = None
-        self.zoom = DRIVE_ZOOM
+        self._snap_zoom(DRIVE_ZOOM)
         self.race: DragRace | None = None
         self.race_over = 0.0        # Seconds the finished race has been showing its result.
         self.clock = 0.0
@@ -109,9 +124,14 @@ class Game:
             self._spawn_walker_entity()
             self.state.set_player_pose(self.player_id, self.car.x, self.car.y, self.car.heading)
             self.collisions.fixed = [self.car.obstacle()]
-            self.zoom = WALK_ZOOM
+            self._snap_zoom(WALK_ZOOM)
 
     # Helpers --------------------------------------------------------------------
+
+    def _snap_zoom(self, zoom: float):
+        """Jump straight to a zoom (loading, travel, races), ending any zoom in progress."""
+        self.zoom = self.zoom_from = self.zoom_to = zoom
+        self.zoom_time = ZOOM_TIME
 
     def _spawn_walker_entity(self):
         if self.walker_id is None:
@@ -139,7 +159,7 @@ class Game:
         self.car.speed = 0.0
         self.state.set_player_pose(self.player_id, self.car.x, self.car.y, self.car.heading)
         self.collisions.fixed = [self.car.obstacle()]
-        self.zoom = WALK_ZOOM
+        self._snap_zoom(WALK_ZOOM)
 
     # Giving up -----------------------------------------------------------------------
 
@@ -181,11 +201,17 @@ class Game:
         player = self.walker or self.car
         here = "" if self.race else self.world.region_at(player.x, player.y)
         self.menu.set_mastery(self.missions.mastery_rows(here), self._island_status())
+        self.menu.set_docks([(dock.name, pier_open(self.missions.progress, dock.name))
+                             for dock in self.world.docks])
 
-    def _fast_travel(self, region):
-        """Jump to the region's edge in the car; only offered when no mission is running."""
+    def _fast_travel(self, region, dock=None):
+        """Jump to the region's edge in the car; only offered when no mission is running.
+        The beach lands by the chosen fishing pier."""
         player = self.walker or self.car
-        landing = destination(self.world, self.collisions, self.car, region, player.x, player.y)
+        if region == "beach":
+            landing = beach_destination(self.world, self.collisions, self.car, player.x, player.y, dock)
+        else:
+            landing = destination(self.world, self.collisions, self.car, region, player.x, player.y)
         self.menu.toggle()
         if landing is None:
             self.panel.show_message("Fast travel", f"No clear spot at the {region} border right now.")
@@ -194,7 +220,7 @@ class Game:
         self.car.speed = 0.0
         self.walker = None
         self.collisions.fixed = []
-        self.zoom = DRIVE_ZOOM
+        self._snap_zoom(DRIVE_ZOOM)
         self.state.set_player_pose(self.player_id, self.car.x, self.car.y, self.car.heading)
 
     def _show_result(self, result):
@@ -218,9 +244,25 @@ class Game:
             elif choice in ("abort", "quit_race"):
                 self.menu.toggle()
                 self._confirm_give_up(choice)
+            elif choice == "spend":
+                self.menu.toggle()
+                self.spend_menu.show(self.missions)
+            elif choice and choice.startswith("dock:"):
+                self._fast_travel("beach", choice.split(":", 1)[1])
             elif choice and choice.startswith("travel:"):
                 self._fast_travel(choice.split(":", 1)[1])
             return choice != "exit"
+        if self.spend_menu.open:
+            outcome = self.spend_menu.handle(action, value)
+            if isinstance(outcome, tuple):
+                _, region, amount = outcome
+                before = self.missions.unspent
+                levels = self.missions.spend(region, amount)
+                spent = before - self.missions.unspent
+                self.spend_menu.refresh(self.missions, level_up_line(region, levels) if levels
+                                        else f"+{spent} {region.title()} mastery")
+                self.autosave.request()
+            return True
         if self.panel.open:
             outcome = self.panel.handle(action, value)
             if outcome is None:
@@ -250,6 +292,11 @@ class Game:
         elif self.race:
             if action == "reset" and self.race.result is None:
                 self.race.car.respawn_nearby(self.race.collisions)
+        elif action == "confirm":
+            if self.fishing:
+                self.fishing.press()   # Space: strike while the marker is in the green.
+        elif action in ("reset", "island") and self.fishing:
+            self.fishing = None        # Put the rod away first; press again to act.
         elif action == "reset":
             (self.walker or self.car).respawn_nearby(self.collisions)
         elif action == "interact":
@@ -270,8 +317,13 @@ class Game:
             if spot:
                 self._step_out(Walker(*spot, heading=self.car.heading))
             return
+        if self.fishing:
+            self.fishing.cast()   # Casts again once the last fish is landed or gone.
+            return
         giver = self.missions.giver_near(self.walker.x, self.walker.y)
         center = self._center_near(self.walker.x, self.walker.y)
+        trader = trader_near(self.world, self.walker.x, self.walker.y)
+        dock = fishing_spot(self.world, self.walker.x, self.walker.y)
         if giver:
             if self.missions.active:
                 self.panel.show_message(giver.name, "Finish your current mission first.")
@@ -280,9 +332,59 @@ class Game:
                 self.panel.show_offer(self.missions.preview(self.missions.offer_for(giver)))
         elif center:
             self._offer_center_race(center)
+        elif trader:
+            self._talk_to_trader()
+        elif dock:
+            self._start_fishing(dock)
         elif self.walker.can_enter(self.car):
             self.walker = None
             self.collisions.fixed = []
+
+    # Fishing ----------------------------------------------------------------------
+
+    def _start_fishing(self, dock):
+        if not pier_open(self.missions.progress, dock.name):
+            self.panel.show_message(pier_title(dock.name), f"{pier_requirement(dock.name)} to fish here.")
+        elif self.missions.active:
+            self.panel.show_message("Fishing pier", "Finish your current mission first.")
+        else:
+            self.walker.heading, self.walker.speed = dock.heading, 0.0   # Face the sea.
+            self.fishing = FishingSession(dock, self.walker.x, self.walker.y)
+
+    def _talk_to_trader(self):
+        """Trade the whole bag for universal points, then choose where they go."""
+        title = "Fish trader"
+        if not self.missions.progress.fishing_unlocked():
+            self.panel.show_message(title, f"Fishing and trading open at level {FISHING_LEVEL} in any region.")
+            return
+        if not self.missions.fish.count:
+            unspent = self.missions.unspent
+            self.panel.show_lines(title, "", (
+                "Bring me fish from the beach piers.",
+                "I pay mastery points you can spend on any region.",
+                f"You have {unspent} unspent point{'s' if unspent != 1 else ''}" if unspent else ""))
+            return
+        count, value = self.missions.trade_fish()
+        self.autosave.request()
+        self.spend_menu.show(self.missions, f"Traded {count} fish for {value} point{'s' if value != 1 else ''}")
+
+    def _fishing_prompt(self, walker):
+        """Bottom prompt at a trader or a pier's end, or while the rod is out."""
+        unlocked = self.missions.progress.fishing_unlocked()
+        if self.fishing:
+            phase = self.fishing.phase
+            if phase in ("ready", "caught", "escaped"):
+                return "E   Cast again"
+            return "SPACE   Strike!" if phase == "strike" else ""   # The panel says the rest.
+        if trader_near(self.world, walker.x, walker.y):
+            if not unlocked:
+                return f"Trading opens at level {FISHING_LEVEL}"
+            bag = self.missions.fish.count
+            return f"E   Trade {bag} fish" if bag else "E   Fish trader"
+        dock = fishing_spot(self.world, walker.x, walker.y)
+        if dock:
+            return "E   Fish" if pier_open(self.missions.progress, dock.name) else pier_requirement(dock.name)
+        return ""
 
     # Racing centers -------------------------------------------------------------
 
@@ -330,7 +432,7 @@ class Game:
                              rival_sprite=sprite, rival_rating=RIVAL_RATINGS[race - 1])
         self.center_race = (region, race)
         self.race_over = 0.0
-        self.zoom = DRIVE_ZOOM
+        self._snap_zoom(DRIVE_ZOOM)
 
     def _finish_center_race(self):
         region, number = self.center_race
@@ -398,7 +500,7 @@ class Game:
         self.car.speed = 0.0
         self.walker = None
         self.collisions.fixed = []
-        self.zoom = DRIVE_ZOOM
+        self._snap_zoom(DRIVE_ZOOM)
         self.state.set_player_pose(self.player_id, self.car.x, self.car.y, self.car.heading)
 
     def _accept(self, giver):
@@ -408,7 +510,7 @@ class Game:
             # The rival's rating was fixed when the offer was made.
             self.race = DragRace(offer.track, None, scale, offer.seed, rival_rating=offer.rating)
             self.race_over = 0.0
-            self.zoom = DRIVE_ZOOM
+            self._snap_zoom(DRIVE_ZOOM)
 
     # Update -----------------------------------------------------------------------
 
@@ -417,7 +519,7 @@ class Game:
         # Runs even while paused; drag races are skipped (they save when they end).
         if self.autosave.tick(dt, allowed=self.race is None):
             self._autosave()
-        if self.menu.open or self.panel.open:
+        if self.menu.open or self.panel.open or self.spend_menu.open:
             return
         if self.race:
             self._update_race(dt)
@@ -427,11 +529,22 @@ class Game:
     def _update_world(self, dt):
         car, walker = self.car, self.walker
         player = walker or car
+        if self.fishing and walker is None:
+            self.fishing = None   # Travel or the car took the player away from the pier.
         blockers = [car.collision_record()] if walker else []
         self.parking.update(dt, player.x, player.y)
         self.pedestrians.update(dt, player.collision_record())
         self.traffic.update(dt, player.collision_record(), blockers + self.pedestrians.road_blockers())
-        if walker:
+        if walker and self.fishing:
+            move_x, move_y, _ = self.inputs.walking()
+            if move_x or move_y:
+                self.fishing = None   # Walking off puts the rod away (a hooked fish is lost).
+        if walker and self.fishing:
+            if self.fishing.update(dt, self.missions.fish):
+                self.autosave.request()   # A fish in the bag is saved at once.
+            self.state.set_player_pose(self.walker_id, walker.x, walker.y, walker.heading)
+            self.state.set_frame(self.walker_id, self.fishing.pose())
+        elif walker:
             walker.update(dt, *self.inputs.walking(), self.collisions)
             self.state.set_player_pose(self.walker_id, walker.x, walker.y, walker.heading)
             self.state.set_frame(self.walker_id, walker.frame())
@@ -447,9 +560,10 @@ class Game:
         if result:
             self._show_result(result)
         target_zoom = WALK_ZOOM if self.walker else DRIVE_ZOOM
-        self.zoom += (target_zoom - self.zoom) * min(1.0, dt * ZOOM_RATE)
-        if abs(target_zoom - self.zoom) < 0.01:
-            self.zoom = target_zoom  # Settle on an exact zoom for crisp pixels.
+        if target_zoom != self.zoom_to:   # Got in or out: ease from wherever the zoom is.
+            self.zoom_from, self.zoom_to, self.zoom_time = self.zoom, target_zoom, 0.0
+        self.zoom_time += dt
+        self.zoom = eased_zoom(self.zoom_from, self.zoom_to, self.zoom_time)
 
     def _update_race(self, dt):
         race = self.race
@@ -491,8 +605,10 @@ class Game:
             self._render_world()
         if self.panel.open:
             self.panel.render()
+        if self.spend_menu.open:
+            self.spend_menu.render()
         if self.menu.open:
-            if self.menu.page == "mastery":
+            if self.menu.page in ("mastery", "docks"):
                 self._refresh_mastery()
             self.menu.set_ongoing(self._ongoing())
             self.menu.render()
@@ -508,6 +624,10 @@ class Game:
         visible += self.traffic.sprites(camera_x, camera_y, view_w, view_h)
         visible += self.pedestrians.sprites(camera_x, camera_y, view_w, view_h)
         visible += self.missions.sprites(self.clock)
+        visible += trader_sprites(self.world, self.clock)
+        fishing = self.fishing if walker else None
+        if fishing:
+            visible += fishing.sprites()
         entities = [self.player_id] + ([self.walker_id] if walker else [])
         self.state.render(visible, camera_x, camera_y, entities, zoom)
 
@@ -530,6 +650,8 @@ class Game:
             won = self.missions.progress.races[center_region]
             prompt = ("E   Racing center  ·  Champion" if won >= CENTER_RACES
                       else f"E   Racing center  ·  Race {won + 1}/{CENTER_RACES}")
+        elif walker and (self.fishing or self._fishing_prompt(walker)):
+            prompt = self._fishing_prompt(walker)
         elif walker and walker.can_enter(car):
             prompt = "E   Get in"
         elif island:
@@ -537,10 +659,15 @@ class Game:
         elif walker and math.dist((walker.x, walker.y), (car.x, car.y)) > CALL_PROMPT_DISTANCE:
             prompt = "Q   Call car"
         self.hud.top_speed = TOP_SPEED * self.missions.progress.speed_scale(region)
+        mission = self.missions.status()
+        if fishing and fishing.status()[0]:
+            mission = fishing.status()
         self.hud.render(car.speed, region, guide, prompt, show_speed=walker is None,
-                        mission=self.missions.status(), toast=self._toast())
+                        mission=mission, toast=self._toast())
+        if fishing and not (self.menu.open or self.panel.open):
+            self.strike_bar.render(fishing)
         point = target or (center[1:] if center else None)
-        if point and not (self.menu.open or self.panel.open):
+        if point and not (self.menu.open or self.panel.open or self.spend_menu.open):
             # Drawn last so nothing in the world or HUD can cover it.
             self.arrow.render(point[0], point[1], player.x, player.y, camera_x, camera_y, zoom)
 
